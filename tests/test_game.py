@@ -47,7 +47,7 @@ def test_ui_order_clamps_map_edges_and_save_load_restores(game):
     game.issue(game.clamp_point((-100, -30)), game.clamp_point((999, 999)))
     order = game.sim.world.by_id(4).orders[0]
     assert order.kind == "CUT"
-    assert order.points == [(0, 0), (255, 191)]
+    assert order.points == [(0, 0), (game.sim.grid.w - 1, game.sim.grid.h - 1)]
     game.sim.step(3)
     game.save()
     before = game.sim.state_hash()
@@ -81,3 +81,31 @@ def test_game_starts_with_stereo_audio_device(tmp_path, monkeypatch):
         g.draw()
     finally:
         pygame.quit()
+
+
+def test_purchased_dozer_arrives_and_has_locate_button(game):
+    from backburn.config import UNITS
+
+    game.start(True)
+    game.act("begin")
+    game.act("dispatch")
+    before = {u.uid for u in game.sim.world.units}
+    game.act("buy:BULLDOZER")
+    assert game.modal is None
+    assert len(game.sim.world.pending) == 1
+    assert game.paused
+    assert game.sim.spent == UNITS["BULLDOZER"]["cost"]
+    for _ in range(10):
+        game.update(0.1)
+    assert game.sim.tick == 0
+    game.act("pause")
+    game.speed = 8
+    for _ in range(70):
+        game.update(0.1)
+    arrived = [u for u in game.sim.world.units if u.uid not in before]
+    assert len(arrived) == 1 and arrived[0].utype == "BULLDOZER"
+    assert not game.sim.world.pending
+    assert game.latest_arrival == arrived[0].uid
+    game.draw()
+    game.act(f"unit:{game.latest_arrival}")
+    assert game.viewport.collidepoint(game.to_screen(arrived[0].x, arrived[0].y))
