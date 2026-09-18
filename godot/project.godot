@@ -1,0 +1,33 @@
+; Engine configuration file.
+; Backburn — Godot 4.3+ shell around the SimulationCore (see PORTING.md).
+; This project is scaffolding: it opens in Godot, but the sim is not ported yet.
+
+config_version=5
+
+[application]
+
+config/name="Backburn"
+run/main_scene="res://scenes/Main.tscn"
+config/features=PackedStringArray("4.3", "Forward Plus")
+config/icon="res://icon.svg"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=800
+window/stretch/mode="canvas_items"
+
+[input]
+
+pause={"deadzone": 0.5, "events": [Object(InputEventKey,"keycode":32)]}
+pan_up={"deadzone": 0.5, "events": [Object(InputEventKey,"keycode":87)]}
+pan_down={"deadzone": 0.5, "events": [Object(InputEventKey,"keycode":83)]}
+pan_left={"deadzone": 0.5, "events": [Object(InputEventKey,"keycode":65)]}
+pan_right={"deadzone": 0.5, "events": [Object(InputEventKey,"keycode":68)]}
+overlay_fire={"deadzone": 0.5, "events": [Object(InputEventKey,"keycode":70)]}
+overlay_wind={"deadzone": 0.5, "events": [Object(InputEventKey,"keycode":87)]}
+queue_modifier={"deadzone": 0.5, "events": [Object(InputEventKey,"keycode":4194325)]}
+
+[rendering]
+
+textures/canvas_textures/default_texture_filter=0

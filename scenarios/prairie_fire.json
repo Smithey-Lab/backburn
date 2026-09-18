@@ -1,0 +1,29 @@
+{
+  "name": "Prairie Fire",
+  "notes": "Mission name from the original RTS list (brief §5). Layout is new. Grass valley with a lake to the south-west, a river-road crossing, and a small settlement east. Fire starts west with a westerly wind pushing it at the houses.",
+  "seed": 7,
+  "width": 128,
+  "height": 96,
+  "moisture": 0.12,
+  "wind": { "speed": 6, "bearing": 90 },
+  "airbase": [3, 3],
+  "duration": 1500,
+  "terrain": {
+    "mode": "generate",
+    "params": { "water_level": 0.26, "shrub_level": 0.5, "forest_level": 0.6, "dense_level": 0.74, "roads": 2, "structures": 12 }
+  },
+  "ignitions": [
+    { "x": 14, "y": 40, "radius": 1 },
+    { "x": 16, "y": 52, "radius": 0 }
+  ],
+  "units": [
+    { "type": "ENGINE", "x": 58, "y": 8 },
+    { "type": "BRUSH_TRUCK", "x": 58, "y": 10 },
+    { "type": "HOSE_TEAM", "x": 60, "y": 14 },
+    { "type": "CUT_TEAM", "x": 58, "y": 16 },
+    { "type": "BULLDOZER", "x": 58, "y": 12 },
+    { "type": "HELICOPTER", "x": 4, "y": 4 },
+    { "type": "WATER_BOMBER", "x": 3, "y": 3 },
+    { "type": "RETARDANT_BOMBER", "x": 3, "y": 3 }
+  ]
+}

@@ -1,0 +1,224 @@
+{
+  "_comment": "Per-terrain fire and movement properties. All rates are per simulated second. Movement cost: 1.0 = normal speed, higher = slower, null = impassable.",
+  "types": {
+    "WATER": {
+      "id": 0,
+      "color": [
+        38,
+        92,
+        168
+      ],
+      "fuel": 0.0,
+      "ignition_rate": 0.0,
+      "burn_rate": 0.0,
+      "heat_output": 0.0,
+      "smolder_time": 0,
+      "move": {
+        "FOOT": null,
+        "ROAD": null,
+        "OFFROAD": null,
+        "AIR": 1.0,
+        "WATERCRAFT": 1.0
+      },
+      "is_water_source": true
+    },
+    "GRASS": {
+      "id": 1,
+      "color": [
+        148,
+        186,
+        78
+      ],
+      "fuel": 0.35,
+      "ignition_rate": 0.55,
+      "burn_rate": 0.045,
+      "heat_output": 0.6,
+      "smolder_time": 15,
+      "move": {
+        "FOOT": 1.0,
+        "ROAD": 2.2,
+        "OFFROAD": 1.3,
+        "AIR": 1.0,
+        "WATERCRAFT": null
+      }
+    },
+    "SHRUB": {
+      "id": 2,
+      "color": [
+        120,
+        150,
+        60
+      ],
+      "fuel": 0.6,
+      "ignition_rate": 0.32,
+      "burn_rate": 0.05,
+      "heat_output": 0.85,
+      "smolder_time": 40,
+      "move": {
+        "FOOT": 1.4,
+        "ROAD": null,
+        "OFFROAD": 1.8,
+        "AIR": 1.0,
+        "WATERCRAFT": null
+      }
+    },
+    "FOREST": {
+      "id": 3,
+      "color": [
+        58,
+        122,
+        52
+      ],
+      "fuel": 1.0,
+      "ignition_rate": 0.14,
+      "burn_rate": 0.03,
+      "heat_output": 1.0,
+      "smolder_time": 90,
+      "move": {
+        "FOOT": 1.8,
+        "ROAD": null,
+        "OFFROAD": 2.6,
+        "AIR": 1.0,
+        "WATERCRAFT": null
+      }
+    },
+    "DENSE_FOREST": {
+      "id": 4,
+      "color": [
+        30,
+        82,
+        36
+      ],
+      "fuel": 1.6,
+      "ignition_rate": 0.06,
+      "burn_rate": 0.018,
+      "heat_output": 1.35,
+      "smolder_time": 180,
+      "move": {
+        "FOOT": 2.4,
+        "ROAD": null,
+        "OFFROAD": null,
+        "AIR": 1.0,
+        "WATERCRAFT": null
+      }
+    },
+    "ROAD": {
+      "id": 5,
+      "color": [
+        74,
+        74,
+        78
+      ],
+      "fuel": 0.0,
+      "ignition_rate": 0.0,
+      "burn_rate": 0.0,
+      "heat_output": 0.0,
+      "smolder_time": 0,
+      "move": {
+        "FOOT": 0.8,
+        "ROAD": 0.6,
+        "OFFROAD": 0.7,
+        "AIR": 1.0,
+        "WATERCRAFT": null
+      }
+    },
+    "GRAVEL": {
+      "id": 6,
+      "color": [
+        150,
+        140,
+        120
+      ],
+      "fuel": 0.0,
+      "ignition_rate": 0.0,
+      "burn_rate": 0.0,
+      "heat_output": 0.0,
+      "smolder_time": 0,
+      "move": {
+        "FOOT": 0.9,
+        "ROAD": 1.0,
+        "OFFROAD": 0.9,
+        "AIR": 1.0,
+        "WATERCRAFT": null
+      }
+    },
+    "STRUCTURE": {
+      "id": 7,
+      "color": [
+        200,
+        90,
+        70
+      ],
+      "fuel": 1.2,
+      "ignition_rate": 0.12,
+      "burn_rate": 0.02,
+      "heat_output": 1.2,
+      "smolder_time": 120,
+      "move": {
+        "FOOT": null,
+        "ROAD": null,
+        "OFFROAD": null,
+        "AIR": 1.0,
+        "WATERCRAFT": null
+      },
+      "is_objective": true
+    },
+    "FIREBREAK": {
+      "id": 8,
+      "color": [
+        176,
+        150,
+        100
+      ],
+      "fuel": 0.02,
+      "ignition_rate": 0.05,
+      "burn_rate": 0.2,
+      "heat_output": 0.05,
+      "smolder_time": 0,
+      "move": {
+        "FOOT": 0.9,
+        "ROAD": null,
+        "OFFROAD": 1.0,
+        "AIR": 1.0,
+        "WATERCRAFT": null
+      }
+    },
+    "SAND": {
+      "id": 9,
+      "color": [
+        222,
+        206,
+        150
+      ],
+      "fuel": 0.0,
+      "ignition_rate": 0.0,
+      "burn_rate": 0.0,
+      "heat_output": 0.0,
+      "smolder_time": 0,
+      "move": {
+        "FOOT": 1.2,
+        "ROAD": null,
+        "OFFROAD": 1.4,
+        "AIR": 1.0,
+        "WATERCRAFT": null
+      }
+    }
+  },
+  "fire": {
+    "_comment": "Global fire constants. exposure_scale converts summed neighbour heat into an ignition hazard; wind_gain scales how much wind speed (m/s) tilts spread; dryness_floor keeps saturated cells from being fully immune. retardant_strength > 1 means full-strength retardant blocks ignition entirely until it decays.",
+    "exposure_scale": 0.18,
+    "wind_gain": 0.14,
+    "wind_upwind_min": 0.12,
+    "slope_gain": 0.0,
+    "dryness_floor": 0.08,
+    "water_decay": 0.02,
+    "water_extinguish_threshold": 0.45,
+    "water_moisture_gain": 0.5,
+    "retardant_decay": 0.001,
+    "smolder_heat_fraction": 0.35,
+    "smolder_ignites_neighbours": true,
+    "moisture_dry_rate": 0.004,
+    "heat_decay_cold": 0.05,
+    "retardant_strength": 1.5
+  }
+}

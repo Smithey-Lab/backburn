@@ -1,0 +1,16 @@
+[project]
+name = "backburn"
+version = "0.1.0"
+description = "Clean-room wildfire tactics simulation core (Python prototype)"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.26", "pillow>=10"]
+
+[project.optional-dependencies]
+viewer = ["pygame>=2.5"]
+dev = ["pytest>=8", "pygame>=2.5"]
+
+[tool.setuptools.packages.find]
+include = ["backburn*"]
+
+[tool.setuptools.package-data]
+backburn = ["data/*.json"]
