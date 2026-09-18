@@ -88,8 +88,11 @@ class Game:
         self.auto_tick = 0
         self.audio = None
         if pygame.mixer.get_init():
-            samples = np.arange(1800) / 22050
+            frequency, _, channels = pygame.mixer.get_init()
+            samples = np.arange(1800) / frequency
             wave = (np.sin(samples * 2 * math.pi * 620) * np.exp(-samples * 45) * 3000).astype(np.int16)
+            if channels > 1:
+                wave = np.repeat(wave[:, None], channels, axis=1)
             self.audio = pygame.sndarray.make_sound(wave)
         self.layout()
 

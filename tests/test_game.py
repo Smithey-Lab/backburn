@@ -64,3 +64,15 @@ def test_all_views_draw_at_minimum_window(game):
             game.modal = modal
             game.draw()
             assert all(game.screen.get_rect().contains(rect) for rect, _ in game.buttons)
+
+
+def test_game_starts_with_stereo_audio_device(tmp_path, monkeypatch):
+    monkeypatch.setenv("BACKBURN_DATA_DIR", str(tmp_path))
+    pygame.mixer.init(frequency=44100, size=-16, channels=2)
+    try:
+        g = Game()
+        assert pygame.mixer.get_init()[2] == 2
+        assert g.audio is not None
+        g.draw()
+    finally:
+        pygame.quit()
