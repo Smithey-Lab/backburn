@@ -138,6 +138,10 @@ class Unit:
         return self.move_class == MoveClass.AIR
 
     @property
+    def is_plane(self) -> bool:
+        return self.is_air and bool(self.spec.get("reload_at_base"))
+
+    @property
     def is_civilian(self) -> bool:
         return bool(self.spec.get("is_civilian", False))
 
@@ -173,6 +177,12 @@ class Unit:
     def give(self, order: Order, queue: bool = False) -> None:
         if order.kind not in ORDER_KINDS:
             raise ValueError(f"unknown order kind {order.kind!r}")
+        if self.is_plane and self.current and self.current.kind == REFILL:
+            if not queue:
+                self.orders.clear()
+            if order.kind != HOLD:
+                self.orders.append(order)
+            return
         if not queue:
             self.orders.clear()
             self.current = None
@@ -276,6 +286,11 @@ class Unit:
             return
         self._t = grid.time
         self.replan_cooldown = max(0.0, self.replan_cooldown - dt)
+
+        if self.is_plane:
+            for _ in range(20):
+                self._update_plane(grid, dt / 20)
+            return
 
         if self.is_civilian:
             self._civilian(grid, dt, world)
@@ -575,6 +590,76 @@ class Unit:
             self.orders.appendleft(Order(resume.kind, resume.target, list(resume.points)))
         self._reset_order_state()
 
+    def _plane_exit(self, grid, direction=1):
+        edge = grid.w + 12 if direction >= 0 else -12
+        self.current = Order(REFILL, target=(edge, self.y), auto=True)
+        self.path = [(edge, self.y)]
+        self.reload_timer = float(self.spec["reload_seconds"])
+        self.state = "EXITING"
+
+    def _update_plane(self, grid, dt):
+        """Fixed-wing sorties keep flying until they reach off-map side staging."""
+        if self.current is None:
+            if self.orders:
+                self._next_order()
+            elif 0 <= self.x < grid.w:
+                self._plane_exit(grid, 1 if self.x >= grid.w / 2 else -1)
+            else:
+                self.state = "READY"
+                return
+        order = self.current
+        if order.kind == REFILL:
+            if self.path:
+                self.state = "EXITING"
+                self._advance(grid, dt)
+                return
+            self.state = "RELOADING"
+            self.reload_timer = max(0, self.reload_timer - dt)
+            duration = float(self.spec["reload_seconds"])
+            self.tank = self.capacity * (1 - self.reload_timer / duration)
+            if self.reload_timer <= 0:
+                self.tank = self.capacity
+                self._finish()
+                self.state = "READY"
+            return
+        if order.kind == DROP and len(order.points) >= 2:
+            start, end = order.points[:2]
+            if self.drop_phase == 0:
+                if not self.path:
+                    self.path = [tuple(start)]
+                self.state = "INBOUND"
+                if self._advance(grid, dt):
+                    self.drop_phase = 1
+                    self.path = [tuple(end)]
+                return
+            self.state = "DROPPING"
+            ox, oy = self.x, self.y
+            done = self._advance(grid, dt)
+            distance = math.hypot(self.x - ox, self.y - oy)
+            total = max(1, math.dist(start, end))
+            grid.apply_line(
+                ox,
+                oy,
+                self.x,
+                self.y,
+                float(self.spec["drop_width"]),
+                self.spec.get("drop_agent", "water"),
+                float(self.spec.get("drop_strength", 0.7)) * distance / total * 6,
+            )
+            self.tank = max(0, self.tank - self.capacity * distance / total)
+            if done or self.tank <= 0:
+                self.tank = 0
+                self._plane_exit(grid, end[0] - start[0])
+            return
+        if order.kind == MOVE and order.target:
+            if not self.path:
+                self.path = [tuple(order.target)]
+            self.state = "INBOUND"
+            if self._advance(grid, dt):
+                self._plane_exit(grid, 1 if self.x >= grid.w / 2 else -1)
+            return
+        self._plane_exit(grid, 1 if self.x >= grid.w / 2 else -1)
+
     def _do_pickup(self, grid, o, dt, world) -> None:
         target = world.by_id(o.unit_id)
         if target is None or not target.alive or target.in_vehicle is not None or not target.is_foot:
@@ -794,6 +879,10 @@ class World:
         if grid is not None:
             x, y = self.snap_passable(grid, UNITS[utype]["movement_class"], x, y)
         u = Unit(utype, float(x), float(y), uid=self._next_uid)
+        if grid is not None and u.is_plane:
+            u.x = -12.0 if u.uid % 2 else grid.w + 12.0
+            u.y = min(max(y, 1), grid.h - 2)
+            u.state = "READY"
         self._next_uid += 1
         self.units.append(u)
         return u
