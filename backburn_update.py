@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 import urllib.request
+import uuid
 import webbrowser
 import zipfile
 from pathlib import Path
@@ -79,7 +80,12 @@ def install_archive(archive, digest, version, root=ROOT):
         folder = f"{version}-{actual[:12]}"
         destination = versions / folder
         if not destination.exists():
-            staging.rename(destination)
+            # Windows tempfile directories use private ACLs. Copy into a fresh
+            # installation directory so files inherit the destination's normal
+            # permissions rather than carrying temporary-directory ACLs forever.
+            incoming = versions / ("incoming-" + uuid.uuid4().hex)
+            shutil.copytree(staging, incoming)
+            incoming.rename(destination)
         data = {"version": version, "folder": f"versions/{folder}", "sha256": actual}
         temporary = root / "current.tmp"
         temporary.write_text(json.dumps(data), encoding="utf-8")

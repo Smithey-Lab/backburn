@@ -49,32 +49,47 @@ def terrain_surface(sim, overlay=None):
     return pygame.surfarray.make_surface(np.transpose(rgb, (1, 0, 2)))
 
 
+def tree_cells(terrain, state):
+    """A tree's location depends only on its cell, never the count of surviving trees."""
+    ys, xs = np.indices(terrain.shape)
+    placement = ((xs * 73) ^ (ys * 151)) % 5 < 2
+    return np.nonzero(placement & ((terrain == T.FOREST) | (terrain == T.DENSE_FOREST)) & (state == 0))
+
+
 def details(screen, sim, to_screen, zoom, viewport, clock):
     g = sim.grid
+
+    def visible(ys, xs):
+        # Transform and cull in NumPy; avoid Python work for off-screen map cells.
+        ox, oy = to_screen(0, 0)
+        sx = np.rint(ox + xs * zoom).astype(int)
+        sy = np.rint(oy + ys * zoom).astype(int)
+        margin = zoom * 3
+        mask = (
+            (sx >= viewport.left - margin)
+            & (sx <= viewport.right + margin)
+            & (sy >= viewport.top - margin)
+            & (sy <= viewport.bottom + margin)
+        )
+        return zip(xs[mask].tolist(), ys[mask].tolist(), sx[mask].tolist(), sy[mask].tolist())
+
     if zoom >= 5:
-        ys, xs = np.nonzero(((g.terrain == T.FOREST) | (g.terrain == T.DENSE_FOREST)) & (g.state == 0))
-        for x, y in zip(xs[::3], ys[::3]):
-            sx, sy = to_screen(x, y)
-            if not viewport.collidepoint(sx, sy):
-                continue
-            r = max(2, int(zoom * 0.65))
+        ys, xs = tree_cells(g.terrain, g.state)
+        r = max(2, int(zoom * 0.65))
+        for _, _, sx, sy in visible(ys, xs):
             pygame.draw.line(screen, (47, 56, 39), (sx, sy), (sx, sy + r), 2)
             pygame.draw.polygon(
                 screen, (39, 72, 49), [(sx, sy - r), (sx - r, sy + r // 2), (sx + r, sy + r // 2)]
             )
             pygame.draw.line(screen, (69, 107, 64), (sx, sy - r), (sx - r, sy + r // 2))
         ys, xs = np.nonzero((g.terrain == T.STRUCTURE) & (g.state == 0))
-        for x, y in zip(xs, ys):
-            sx, sy = to_screen(x, y)
+        for _, _, sx, sy in visible(ys, xs):
             r = max(2, int(zoom * 0.45))
             pygame.draw.rect(screen, (43, 49, 40), (sx - r + 2, sy - r + 2, r * 2, r * 2))
             pygame.draw.rect(screen, (209, 190, 151), (sx - r, sy - r, r * 2, r * 2))
             pygame.draw.polygon(screen, (132, 76, 52), [(sx - r - 1, sy), (sx, sy - r - 2), (sx + r + 1, sy)])
     ys, xs = np.nonzero(g.state == BURNING)
-    for x, y in zip(xs[::2], ys[::2]):
-        sx, sy = to_screen(x, y)
-        if not viewport.collidepoint(sx, sy):
-            continue
+    for x, y, sx, sy in visible(ys[::2], xs[::2]):
         r = max(2, int(zoom * 0.65))
         rise = int((clock * 12 + x * 3 + y) % 10)
         pygame.draw.polygon(
