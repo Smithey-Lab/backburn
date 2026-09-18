@@ -1,0 +1,450 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/backburn/scenario.schema.json",
+  "title": "Backburn scenario",
+  "description": "Wildfire tactics scenario file. See docs/SCENARIO_FORMAT.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "briefing": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "width": {
+      "type": "integer",
+      "minimum": 8,
+      "maximum": 512
+    },
+    "height": {
+      "type": "integer",
+      "minimum": 8,
+      "maximum": 512
+    },
+    "moisture": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "wind": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "speed": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 40
+        },
+        "bearing": {
+          "type": "number"
+        }
+      }
+    },
+    "duration": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "airbase": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "staging": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "safe_zone": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "budget": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "available_units": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "BRUSH_TRUCK",
+          "BULLDOZER",
+          "CIVILIAN",
+          "CUT_TEAM",
+          "ENGINE",
+          "FIRE_BOAT",
+          "HELICOPTER",
+          "HOSE_TEAM",
+          "HOTSHOTS",
+          "P3_BOMBER",
+          "RETARDANT_BOMBER",
+          "SMOKEJUMPERS",
+          "WATER_BOMBER"
+        ]
+      }
+    },
+    "terrain": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "const": "generate"
+            },
+            "params": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "water_level": {
+                  "type": "number"
+                },
+                "shrub_level": {
+                  "type": "number"
+                },
+                "forest_level": {
+                  "type": "number"
+                },
+                "dense_level": {
+                  "type": "number"
+                },
+                "roads": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "structures": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "lake": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "rows"
+          ],
+          "properties": {
+            "mode": {
+              "const": "grid"
+            },
+            "rows": {
+              "type": "array",
+              "minItems": 8,
+              "items": {
+                "type": "string",
+                "pattern": "^[WGSFDRVBXA]+$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "elevation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "const": "generate"
+            },
+            "relief": {
+              "type": "number",
+              "minimum": 0
+            },
+            "seed": {
+              "type": "integer"
+            },
+            "octaves": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 6
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "rows"
+          ],
+          "properties": {
+            "mode": {
+              "const": "grid"
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ignitions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "x",
+          "y"
+        ],
+        "properties": {
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "radius": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 32
+          }
+        }
+      }
+    },
+    "units": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "x",
+          "y"
+        ],
+        "properties": {
+          "type": {
+            "enum": [
+              "BRUSH_TRUCK",
+              "BULLDOZER",
+              "CIVILIAN",
+              "CUT_TEAM",
+              "ENGINE",
+              "FIRE_BOAT",
+              "HELICOPTER",
+              "HOSE_TEAM",
+              "HOTSHOTS",
+              "P3_BOMBER",
+              "RETARDANT_BOMBER",
+              "SMOKEJUMPERS",
+              "WATER_BOMBER"
+            ]
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "objectives": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_structures_lost": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "max_civilians_lost": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "max_area_burned_pct": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "rescue_all_civilians": {
+          "type": "boolean"
+        },
+        "win_on_contained": {
+          "type": "boolean"
+        }
+      }
+    },
+    "scoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "structure_saved": {
+          "type": "number"
+        },
+        "civilian_rescued": {
+          "type": "number"
+        },
+        "civilian_lost": {
+          "type": "number"
+        },
+        "acre_saved": {
+          "type": "number"
+        },
+        "budget_remaining": {
+          "type": "number"
+        },
+        "contain_bonus": {
+          "type": "number"
+        },
+        "time_bonus_per_second": {
+          "type": "number"
+        }
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "number",
+            "minimum": 0
+          },
+          "wind": {
+            "type": "object",
+            "properties": {
+              "speed": {
+                "type": "number"
+              },
+              "bearing": {
+                "type": "number"
+              }
+            }
+          },
+          "ignite": {
+            "type": "object",
+            "required": [
+              "x",
+              "y"
+            ],
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "radius": {
+                "type": "integer"
+              }
+            }
+          },
+          "spawn": {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "BRUSH_TRUCK",
+                  "BULLDOZER",
+                  "CIVILIAN",
+                  "CUT_TEAM",
+                  "ENGINE",
+                  "FIRE_BOAT",
+                  "HELICOPTER",
+                  "HOSE_TEAM",
+                  "HOTSHOTS",
+                  "P3_BOMBER",
+                  "RETARDANT_BOMBER",
+                  "SMOKEJUMPERS",
+                  "WATER_BOMBER"
+                ]
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              }
+            }
+          },
+          "budget": {
+            "type": "number"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "wind"
+            ]
+          },
+          {
+            "required": [
+              "ignite"
+            ]
+          },
+          {
+            "required": [
+              "spawn"
+            ]
+          },
+          {
+            "required": [
+              "budget"
+            ]
+          },
+          {
+            "required": [
+              "message"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

@@ -18,6 +18,7 @@ Coordinates: arrays are indexed [y, x] with y growing downward (row 0 is the top
 of the map). Wind direction is a compass bearing in degrees the wind is blowing
 TOWARD: 0 = north (up, −y), 90 = east (+x), 180 = south (+y), 270 = west (−x).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -32,8 +33,14 @@ UNBURNED, BURNING, SMOLDER, COLD = 0, 1, 2, 3
 
 # 8-neighbour offsets as (dx, dy) and their distance weight.
 _OFFSETS: list[tuple[int, int, float]] = [
-    (1, 0, 1.0), (-1, 0, 1.0), (0, 1, 1.0), (0, -1, 1.0),
-    (1, 1, 0.7071), (1, -1, 0.7071), (-1, 1, 0.7071), (-1, -1, 0.7071),
+    (1, 0, 1.0),
+    (-1, 0, 1.0),
+    (0, 1, 1.0),
+    (0, -1, 1.0),
+    (1, 1, 0.7071),
+    (1, -1, 0.7071),
+    (-1, 1, 0.7071),
+    (-1, -1, 0.7071),
 ]
 
 
@@ -51,13 +58,31 @@ class FireStats:
     structures_total: int
     structures_lost: int
     area_burned_frac: float
+    spot_fires: int = 0
+    embers_in_air: int = 0
+
+
+@dataclass
+class Ember:
+    """A lofted ember: launched this tick, lands after `ttl` ticks."""
+
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    ttl: int
 
 
 class FireGrid:
     """All per-cell state plus the fire-spread step."""
 
-    def __init__(self, terrain: np.ndarray, seed: int = 0, base_moisture: float = 0.15,
-                 elevation: np.ndarray | None = None):
+    def __init__(
+        self,
+        terrain: np.ndarray,
+        seed: int = 0,
+        base_moisture: float = 0.15,
+        elevation: np.ndarray | None = None,
+    ):
         assert terrain.ndim == 2
         self.h, self.w = terrain.shape
         self.terrain = terrain.astype(np.uint8)
@@ -70,18 +95,27 @@ class FireGrid:
         self.moisture = self.base_moisture.copy()
         self.state = np.zeros((self.h, self.w), np.uint8)
         self.heat = np.zeros((self.h, self.w), np.float32)
+        self.exposure = np.zeros((self.h, self.w), np.float32)  # last tick's incoming heat (overlay)
         self.water = np.zeros((self.h, self.w), np.float32)
         self.retardant = np.zeros((self.h, self.w), np.float32)
         self.smolder_timer = np.zeros((self.h, self.w), np.float32)
         self.ignited_at = np.full((self.h, self.w), -1.0, np.float32)
-        self.elevation = (elevation.astype(np.float32) if elevation is not None
-                          else np.zeros((self.h, self.w), np.float32))
+        self.elevation = (
+            elevation.astype(np.float32) if elevation is not None else np.zeros((self.h, self.w), np.float32)
+        )
 
-        self.wind_speed = 0.0     # m/s
-        self.wind_bearing = 0.0   # degrees, blowing toward
-        self._structures_total = int((self.terrain == TerrainType.STRUCTURE).sum())
+        self.wind_speed = 0.0  # m/s
+        self.wind_bearing = 0.0  # degrees, blowing toward
+        self._labels: np.ndarray | None = None
+        self._structures_total = 0
+        self._relabel_structures()
         self._wind_cache: tuple[float, float] | None = None
         self._wind_factors: np.ndarray | None = None
+        self._slope_tabs: list[np.ndarray] | None = None
+        self.embers: list[Ember] = []
+        self.spot_fires = 0
+        if elevation is not None:
+            self.set_elevation(elevation)
 
     # ---- wind ---------------------------------------------------------------
 
@@ -107,6 +141,35 @@ class FireGrid:
         self._wind_factors = out
         return out
 
+    # ---- slope ------------------------------------------------------------------
+
+    def set_elevation(self, elevation: np.ndarray) -> None:
+        """Elevation in metres per cell. Uphill spread is faster (Rothermel-style slope factor)."""
+        self.elevation = elevation.astype(np.float32)
+        self._slope_tabs = None
+
+    def _slope_factor_tables(self) -> list[np.ndarray] | None:
+        """Per-direction multiplier on heat arriving at a target cell, cached.
+        factor = exp(slope_gain · rise/run) clamped, rise/run measured from source to target."""
+        gain = float(FIRE.get("slope_gain", 0.0))
+        if gain <= 0.0 or self.elevation is None or not np.any(self.elevation):
+            return None
+        if self._slope_tabs is not None:
+            return self._slope_tabs
+        cell_m = float(FIRE.get("cell_size_m", 10.0))
+        h, w = self.h, self.w
+        tabs = []
+        for dx, dy, _ in _OFFSETS:
+            tab = np.ones((h, w), np.float32)
+            run = math.hypot(dx, dy) * cell_m
+            tgt = self.elevation[max(0, dy) : h + min(0, dy), max(0, dx) : w + min(0, dx)]
+            src = self.elevation[max(0, -dy) : h + min(0, -dy), max(0, -dx) : w + min(0, -dx)]
+            grade = np.clip((tgt - src) / run, -1.0, 1.0)
+            tab[max(0, dy) : h + min(0, dy), max(0, dx) : w + min(0, dx)] = np.exp(gain * grade)
+            tabs.append(tab)
+        self._slope_tabs = tabs
+        return tabs
+
     # ---- external actions ---------------------------------------------------
 
     def ignite(self, x: int, y: int, radius: int = 0) -> int:
@@ -126,8 +189,9 @@ class FireGrid:
         ys, xs = self._disc(x, y, radius)
         self.retardant[ys, xs] = np.minimum(self.retardant[ys, xs] + amount, 1.0)
 
-    def apply_line(self, x0: float, y0: float, x1: float, y1: float, width: float,
-                   agent: str, amount: float) -> None:
+    def apply_line(
+        self, x0: float, y0: float, x1: float, y1: float, width: float, agent: str, amount: float
+    ) -> None:
         """Lay water or retardant along a segment (aircraft drop)."""
         n = max(2, int(math.hypot(x1 - x0, y1 - y0) * 2) + 1)
         for t in np.linspace(0.0, 1.0, n):
@@ -137,9 +201,40 @@ class FireGrid:
             else:
                 self.apply_water(px, py, width / 2, amount / n * 3)
 
+    def _relabel_structures(self) -> None:
+        """Group STRUCTURE cells into buildings (4-connected components). A building is
+        lost when any of its cells burns, so 'structures' counts buildings, not cells."""
+        struct = self.terrain == TerrainType.STRUCTURE
+        labels = np.zeros((self.h, self.w), np.int32)
+        n = 0
+        ys, xs = np.nonzero(struct)
+        for y0, x0 in zip(ys, xs):
+            if labels[y0, x0]:
+                continue
+            n += 1
+            stack = [(int(y0), int(x0))]
+            labels[y0, x0] = n
+            while stack:
+                y, x = stack.pop()
+                for ny, nx in ((y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)):
+                    if 0 <= ny < self.h and 0 <= nx < self.w and struct[ny, nx] and not labels[ny, nx]:
+                        labels[ny, nx] = n
+                        stack.append((ny, nx))
+        self._labels = labels
+        self._structures_total = n
+
+    def structures_lost(self) -> int:
+        if self._labels is None or self._structures_total == 0:
+            return 0
+        hot = (self.state != UNBURNED) & (self._labels > 0)
+        return int(len(np.unique(self._labels[hot])))
+
     def set_terrain(self, x: int, y: int, ttype: int, reset_fuel: bool = True) -> None:
         if not (0 <= x < self.w and 0 <= y < self.h):
             return
+        was = int(self.terrain[y, x])
+        if was == int(TerrainType.STRUCTURE) or ttype == int(TerrainType.STRUCTURE):
+            self._labels = None  # relabel lazily
         self.terrain[y, x] = ttype
         if reset_fuel:
             self.fuel[y, x] = TERRAIN.fuel[ttype]
@@ -178,21 +273,31 @@ class FireGrid:
 
         # 2. Exposure: shifted sums of emitted heat, wind-weighted per direction.
         wf = self._wind_factor_table()
+        slope = self._slope_factor_tables()
         exposure = np.zeros((h, w), np.float32)
         for i, (dx, dy, _) in enumerate(_OFFSETS):
             # Heat travelling in direction (dx, dy): target[y, x] gets source[y-dy, x-dx].
-            src = emitted
-            tgt_view = exposure[max(0, dy):h + min(0, dy), max(0, dx):w + min(0, dx)]
-            src_view = src[max(0, -dy):h + min(0, -dy), max(0, -dx):w + min(0, -dx)]
-            tgt_view += src_view * wf[i]
+            ys, ye, xs, xe = max(0, dy), h + min(0, dy), max(0, dx), w + min(0, dx)
+            tgt_view = exposure[ys:ye, xs:xe]
+            src_view = emitted[max(0, -dy) : h + min(0, -dy), max(0, -dx) : w + min(0, -dx)]
+            if slope is not None:
+                tgt_view += src_view * wf[i] * slope[i][ys:ye, xs:xe]
+            else:
+                tgt_view += src_view * wf[i]
+
+        self.exposure = exposure
 
         # 3. Hazard → probability.
         dryness = np.clip(1.0 - self.moisture, float(FIRE["dryness_floor"]), 1.0)
         suppression = np.clip(self.water, 0.0, 1.0)
-        hazard = (exposure * float(FIRE["exposure_scale"])
-                  * TERRAIN.ignition_rate[T] * dryness
-                  * np.clip(1.0 - float(FIRE["retardant_strength"]) * self.retardant, 0.0, 1.0)
-                  * (1.0 - suppression))
+        hazard = (
+            exposure
+            * float(FIRE["exposure_scale"])
+            * TERRAIN.ignition_rate[T]
+            * dryness
+            * np.clip(1.0 - float(FIRE["retardant_strength"]) * self.retardant, 0.0, 1.0)
+            * (1.0 - suppression)
+        )
         p = 1.0 - np.exp(-hazard * dt)
         roll = self.rng.random((h, w), dtype=np.float32)
         can_ignite = (st == UNBURNED) & (self.fuel > 0.01)
@@ -211,7 +316,9 @@ class FireGrid:
         put_out = (st == BURNING) & (self.water >= thr)
         if put_out.any():
             st[put_out] = UNBURNED
-            self.moisture[put_out] = np.minimum(1.0, self.moisture[put_out] + float(FIRE["water_moisture_gain"]))
+            self.moisture[put_out] = np.minimum(
+                1.0, self.moisture[put_out] + float(FIRE["water_moisture_gain"])
+            )
             self.water[put_out] *= 0.5
             self.fuel[put_out] *= 0.85
 
@@ -227,6 +334,9 @@ class FireGrid:
         st[new_fire] = BURNING
         self.ignited_at[new_fire] = self.time
 
+        # 7b. Ember spotting: strong wind lofts embers from hot fuels to land downwind.
+        self._spot(burning, dryness, dt)
+
         # 8. Field decay: water evaporates, moisture returns toward base, retardant fades.
         self.moisture = np.maximum(self.moisture, np.minimum(1.0, self.water * 0.4 + self.moisture))
         self.water -= self.water * float(FIRE["water_decay"]) * dt
@@ -237,17 +347,151 @@ class FireGrid:
 
         self.time += dt
 
+    # ---- spotting ---------------------------------------------------------------
+
+    def _spot(self, burning: np.ndarray, dryness: np.ndarray, dt: float) -> None:
+        """Land embers that are due, then launch new ones.
+
+        Launch: each burning cell with heat_output ≥ spot_min_heat launches with
+        probability spot_rate·(wind − spot_min_wind)·heat·dt. Landing point is
+        downwind at spot_dist_base + wind·spot_dist_gain cells, with jitter.
+        Landing: unburned fuel cell ignites with probability spot_ignite·dryness·(1 − retardant).
+        """
+        min_wind = float(FIRE.get("spot_min_wind", 8.0))
+        # Land embers whose flight time is up.
+        if self.embers:
+            keep = []
+            lx, ly = [], []
+            for e in self.embers:
+                e.ttl -= 1
+                if e.ttl <= 0:
+                    lx.append(e.x1)
+                    ly.append(e.y1)
+                else:
+                    keep.append(e)
+            self.embers = keep
+            if lx:
+                xs = np.clip(np.rint(lx).astype(int), 0, self.w - 1)
+                ys = np.clip(np.rint(ly).astype(int), 0, self.h - 1)
+                p_ign = (
+                    float(FIRE.get("spot_ignite", 0.5))
+                    * dryness[ys, xs]
+                    * np.clip(1.0 - float(FIRE["retardant_strength"]) * self.retardant[ys, xs], 0, 1)
+                    * (1.0 - np.clip(self.water[ys, xs], 0, 1))
+                )
+                roll = self.rng.random(len(xs))
+                ok = (self.state[ys, xs] == UNBURNED) & (self.fuel[ys, xs] > 0.01) & (roll < p_ign)
+                if ok.any():
+                    self.state[ys[ok], xs[ok]] = BURNING
+                    self.ignited_at[ys[ok], xs[ok]] = self.time
+                    self.spot_fires += int(ok.sum())
+        if self.wind_speed < min_wind or not burning.any():
+            return
+        rate = float(FIRE.get("spot_rate", 0.002))
+        min_heat = float(FIRE.get("spot_min_heat", 0.9))
+        ys, xs = np.nonzero(burning)
+        heat = TERRAIN.heat_output[self.terrain[ys, xs]]
+        hot = heat >= min_heat
+        if not hot.any():
+            return
+        ys, xs, heat = ys[hot], xs[hot], heat[hot]
+        p = rate * (self.wind_speed - min_wind) * heat * dt
+        launch = self.rng.random(len(ys)) < p
+        if not launch.any():
+            return
+        ys, xs = ys[launch], xs[launch]
+        n = len(ys)
+        wx, wy = bearing_to_vector(self.wind_bearing)
+        dist = float(FIRE.get("spot_dist_base", 4.0)) + (self.wind_speed - min_wind) * float(
+            FIRE.get("spot_dist_gain", 1.2)
+        ) * self.rng.random(n, dtype=np.float32)
+        jitter = self.rng.normal(0.0, float(FIRE.get("spot_jitter", 1.5)), size=(n, 2))
+        x1 = xs + wx * dist + jitter[:, 0]
+        y1 = ys + wy * dist + jitter[:, 1]
+        ttl = np.maximum(1, np.rint(dist / max(1.0, self.wind_speed * 0.5)).astype(int))
+        for i in range(n):
+            self.embers.append(Ember(float(xs[i]), float(ys[i]), float(x1[i]), float(y1[i]), int(ttl[i])))
+
+    def is_out(self) -> bool:
+        """True when nothing is burning, nothing is smoldering hot enough to re-ignite, and no embers fly."""
+        return (
+            (not (self.state == BURNING).any())
+            and (not self.embers)
+            and (self.smolder_timer.max() <= 0.0 or not (self.state == SMOLDER).any())
+        )
+
+    # ---- (de)serialisation for savegames ------------------------------------------
+
+    def to_arrays(self) -> dict:
+        return {
+            "terrain": self.terrain,
+            "fuel": self.fuel,
+            "moisture": self.moisture,
+            "base_moisture": self.base_moisture,
+            "state": self.state,
+            "heat": self.heat,
+            "water": self.water,
+            "retardant": self.retardant,
+            "smolder_timer": self.smolder_timer,
+            "ignited_at": self.ignited_at,
+            "elevation": self.elevation,
+        }
+
+    def meta(self) -> dict:
+        return {
+            "seed": self.seed,
+            "time": self.time,
+            "wind_speed": self.wind_speed,
+            "wind_bearing": self.wind_bearing,
+            "spot_fires": self.spot_fires,
+            "rng_state": self.rng.bit_generator.state,
+            "embers": [e.__dict__ for e in self.embers],
+        }
+
+    @classmethod
+    def from_arrays(cls, arrays: dict, meta: dict) -> "FireGrid":
+        g = cls(arrays["terrain"], seed=int(meta["seed"]))
+        for k in (
+            "fuel",
+            "moisture",
+            "base_moisture",
+            "state",
+            "heat",
+            "water",
+            "retardant",
+            "smolder_timer",
+            "ignited_at",
+        ):
+            setattr(g, k, np.array(arrays[k]))
+        g.set_elevation(np.array(arrays["elevation"]))
+        g.time = float(meta["time"])
+        g.set_wind(meta["wind_speed"], meta["wind_bearing"])
+        g.spot_fires = int(meta.get("spot_fires", 0))
+        g.rng.bit_generator.state = meta["rng_state"]
+        g.embers = [Ember(**e) for e in meta.get("embers", [])]
+        g._relabel_structures()
+        return g
+
     # ---- introspection ------------------------------------------------------
 
     def stats(self) -> FireStats:
         st = self.state
         burned = (st == SMOLDER) | (st == COLD)
-        struct = self.terrain == TerrainType.STRUCTURE
-        lost = int((struct & (burned | (st == BURNING))).sum())
+        if self._labels is None:
+            self._relabel_structures()
+        lost = self.structures_lost()
         fuel_cells = TERRAIN.fuel[self.terrain] > 0.02
         frac = float(burned.sum() / max(1, fuel_cells.sum()))
-        return FireStats(int((st == BURNING).sum()), int((st == SMOLDER).sum()),
-                         int(burned.sum()), self._structures_total, lost, frac)
+        return FireStats(
+            int((st == BURNING).sum()),
+            int((st == SMOLDER).sum()),
+            int(burned.sum()),
+            self._structures_total,
+            lost,
+            frac,
+            self.spot_fires,
+            len(self.embers),
+        )
 
     def state_hash(self) -> str:
         m = hashlib.sha256()

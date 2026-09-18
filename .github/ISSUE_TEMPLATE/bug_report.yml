@@ -1,0 +1,24 @@
+name: Bug report
+description: Report a game or launcher problem
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Game version and Windows version
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What happened and how to reproduce it
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant crash log (remove private information)
+      description: '%LOCALAPPDATA%\Backburn\userdata\crash.log'

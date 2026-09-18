@@ -6,11 +6,17 @@ one primary `action` (HOSE, CUT, SPRAY, DROP, NONE). Everything else is a small
 state machine:
 
     IDLE → MOVING → WORKING → (REFILLING | RELOADING | HOSE_BURNED) → ...
+    civilians: IDLE → FLEEING → (SAFE | LOST | ABOARD)
 
-Orders are queued. The sim pops the next order when the current one completes.
-Aircraft ignore terrain and fly straight lines; ground units path with Dijkstra
-and refuse to enter burning cells.
+Orders are queued per unit. The sim pops the next order when the current one
+completes. Aircraft ignore terrain and fly straight lines; ground and water units
+path with A* over the move-cost grid and refuse to enter burning cells.
+
+Transport: any unit with `passenger_slots` can PICKUP a foot unit (crew or
+civilian) and DROPOFF it elsewhere. A civilian dropped inside the scenario's safe
+zone counts as rescued.
 """
+
 from __future__ import annotations
 
 import math
@@ -27,10 +33,31 @@ from .pathfinding import build_cost, find_path
 if TYPE_CHECKING:
     from .fire import FireGrid
 
-
 # Order kinds
 MOVE, SUPPRESS, HOSE, CUT, DROP, REFILL, PICKUP, DROPOFF, HOLD = (
-    "MOVE", "SUPPRESS", "HOSE", "CUT", "DROP", "REFILL", "PICKUP", "DROPOFF", "HOLD")
+    "MOVE",
+    "SUPPRESS",
+    "HOSE",
+    "CUT",
+    "DROP",
+    "REFILL",
+    "PICKUP",
+    "DROPOFF",
+    "HOLD",
+)
+ORDER_KINDS = {MOVE, SUPPRESS, HOSE, CUT, DROP, REFILL, PICKUP, DROPOFF, HOLD}
+
+# Civilian / crew states beyond the movement ones
+FLEEING, SAFE, LOST, ABOARD = "FLEEING", "SAFE", "LOST", "ABOARD"
+
+_NO_CUT = {
+    int(TerrainType.WATER),
+    int(TerrainType.ROAD),
+    int(TerrainType.STRUCTURE),
+    int(TerrainType.GRAVEL),
+    int(TerrainType.SAND),
+    int(TerrainType.FIREBREAK),
+}
 
 
 @dataclass
@@ -38,10 +65,30 @@ class Order:
     kind: str
     target: tuple[float, float] | None = None
     points: list[tuple[float, float]] = field(default_factory=list)  # CUT polyline / DROP segment
+    unit_id: int | None = None  # PICKUP target
     auto: bool = False  # created by the unit itself (auto-refill), not the player
 
     def __repr__(self) -> str:
-        return f"Order({self.kind}, {self.target or self.points})"
+        return f"Order({self.kind}, {self.unit_id if self.kind == PICKUP else (self.target or self.points)})"
+
+    def to_dict(self) -> dict:
+        return {
+            "kind": self.kind,
+            "target": list(self.target) if self.target else None,
+            "points": [list(p) for p in self.points],
+            "unit_id": self.unit_id,
+            "auto": self.auto,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Order":
+        return cls(
+            d["kind"],
+            tuple(d["target"]) if d.get("target") else None,
+            [tuple(p) for p in d.get("points", [])],
+            d.get("unit_id"),
+            bool(d.get("auto", False)),
+        )
 
 
 @dataclass
@@ -51,22 +98,25 @@ class Unit:
     y: float
     uid: int = 0
     state: str = "IDLE"
-    orders: deque[Order] = field(default_factory=deque)
+    orders: deque = field(default_factory=deque)
     current: Order | None = None
-    path: list[tuple[int, int]] = field(default_factory=list)
+    path: list = field(default_factory=list)
     tank: float = 0.0
-    hose: list[tuple[int, int]] = field(default_factory=list)   # cells from water source to unit
+    hose: list = field(default_factory=list)  # cells from unit to water source
     hose_source: tuple[int, int] | None = None
     reconnect_timer: float = 0.0
     reload_timer: float = 0.0
     replan_cooldown: float = 0.0
-    arrived: bool = False       # last path finished but target may be unreachable exactly
+    arrived: bool = False
     cut_progress: float = 0.0
-    cut_index: int = 0           # which segment endpoint of the CUT polyline we're heading to
-    drop_phase: int = 0          # 0 → fly to p0, 1 → dropping p0→p1, 2 → done
-    passengers: list[int] = field(default_factory=list)
+    cut_index: int = 0
+    drop_phase: int = 0
+    passengers: list = field(default_factory=list)  # uids aboard
+    in_vehicle: int | None = None  # uid of carrier
+    rescued: bool = False
     alive: bool = True
-    log: list[str] = field(default_factory=list)
+    flee_timer: float = 0.0
+    log: list = field(default_factory=list)
     _t: float = 0.0
 
     # --- convenience -------------------------------------------------------
@@ -74,6 +124,10 @@ class Unit:
     @property
     def spec(self) -> dict:
         return UNITS[self.utype]
+
+    @property
+    def label(self) -> str:
+        return f"{self.spec.get('label', self.utype)} #{self.uid}"
 
     @property
     def move_class(self) -> MoveClass:
@@ -84,6 +138,14 @@ class Unit:
         return self.move_class == MoveClass.AIR
 
     @property
+    def is_civilian(self) -> bool:
+        return bool(self.spec.get("is_civilian", False))
+
+    @property
+    def is_foot(self) -> bool:
+        return self.move_class == MoveClass.FOOT
+
+    @property
     def cell(self) -> tuple[int, int]:
         return int(round(self.x)), int(round(self.y))
 
@@ -91,44 +153,60 @@ class Unit:
     def capacity(self) -> float:
         return float(self.spec.get("capacity", 0))
 
-    def __post_init__(self) -> None:
-        self.tank = self.capacity
+    @property
+    def passenger_slots(self) -> int:
+        return int(self.spec.get("passenger_slots", 0))
 
-    def say(self, msg: str, t: float) -> None:
-        self.log.append(f"[{t:7.1f}] {self.utype}#{self.uid}: {msg}")
+    @property
+    def busy(self) -> bool:
+        return self.current is not None or bool(self.orders)
+
+    def __post_init__(self) -> None:
+        if self.tank == 0.0:
+            self.tank = self.capacity
+
+    def say(self, msg: str, t: float | None = None) -> None:
+        self.log.append((self._t if t is None else t, f"{self.label}: {msg}"))
 
     # --- orders --------------------------------------------------------------
 
     def give(self, order: Order, queue: bool = False) -> None:
+        if order.kind not in ORDER_KINDS:
+            raise ValueError(f"unknown order kind {order.kind!r}")
         if not queue:
             self.orders.clear()
             self.current = None
-            self.path = []
-            self.cut_index = 0
-            self.cut_progress = 0.0
-            self.drop_phase = 0
-            self.arrived = False
-            self.state = "IDLE"
+            self._reset_order_state()
+            if self.state not in (LOST, ABOARD):
+                self.state = "IDLE"
         self.orders.append(order)
 
-    def _next_order(self, grid: FireGrid) -> None:
-        self.current = self.orders.popleft() if self.orders else None
+    def _reset_order_state(self) -> None:
         self.path = []
         self.cut_index = 0
         self.cut_progress = 0.0
         self.drop_phase = 0
         self.arrived = False
-        if self.current is None:
-            self.state = "IDLE"
-            return
-        self.state = "MOVING"
+
+    def _next_order(self) -> None:
+        self.current = self.orders.popleft() if self.orders else None
+        self._reset_order_state()
+        self.state = "IDLE" if self.current is None else "MOVING"
+
+    def _finish(self) -> None:
+        self.current = None
+        self._reset_order_state()
+        self.state = "IDLE"
 
     # --- movement ------------------------------------------------------------
 
     def _plan_to(self, grid: FireGrid, target: tuple[float, float]) -> bool:
         tx, ty = int(round(target[0])), int(round(target[1]))
+        tx = min(max(tx, 0), grid.w - 1)
+        ty = min(max(ty, 0), grid.h - 1)
         if self.is_air:
             self.path = [(tx, ty)]
+            self.arrived = False
             return True
         if self.replan_cooldown > 0:
             return False
@@ -138,7 +216,7 @@ class Unit:
         if p is None:
             return False
         self.path = p
-        self.arrived = (len(p) == 0)
+        self.arrived = len(p) == 0
         return True
 
     def _advance(self, grid: FireGrid, dt: float) -> bool:
@@ -148,7 +226,6 @@ class Unit:
         while self.path and budget > 1e-6:
             nx, ny = self.path[0]
             if not self.is_air:
-                # Refuse to step into fire; force a replan.
                 if grid.state[ny, nx] in (BURNING, SMOLDER):
                     self.path = []
                     return False
@@ -180,13 +257,13 @@ class Unit:
             return True
         if self.arrived and not self.path:
             if d > tol + 3.0:
-                self.say(f"can't get closer than {d:.0f} cells", self._t)
-            return True  # closest reachable cell; treat as in position
+                self.say(f"can't get closer than {d:.0f} cells")
+            return True
         if not self.path:
             if not self._plan_to(grid, target):
                 if self.replan_cooldown > 0 and not self.arrived:
                     self.state = "MOVING"
-                    return False  # waiting on cooldown after a blocked step
+                    return False
                 return None
         self._advance(grid, dt)
         self.state = "MOVING"
@@ -195,71 +272,74 @@ class Unit:
     # --- per tick ------------------------------------------------------------
 
     def update(self, grid: FireGrid, dt: float, world: "World") -> None:
-        if not self.alive:
+        if not self.alive or self.in_vehicle is not None:
             return
         self._t = grid.time
         self.replan_cooldown = max(0.0, self.replan_cooldown - dt)
-        # Ground units caught in a burning cell are lost.
+
+        if self.is_civilian:
+            self._civilian(grid, dt, world)
+            return
+
+        # Ground units standing in a burning cell are overrun.
         cx, cy = self.cell
-        if not self.is_air and 0 <= cx < grid.w and 0 <= cy < grid.h:
-            if grid.state[cy, cx] == BURNING and not self.spec.get("is_civilian", False):
-                # Crews on foot flee: they survive but drop everything.
-                self.orders.clear(); self.current = None; self.path = []
-                self.state = "IDLE"
-                self.hose = []
-                self.say("overrun by fire, retreating", grid.time)
-                self._flee(grid)
-                return
+        if not self.is_air and grid.state[cy, cx] == BURNING:
+            self.orders.clear()
+            self.current = None
+            self._reset_order_state()
+            self.hose = []
+            self.say("overrun by fire, retreating")
+            self._flee_to_safety(grid)
+            self.state = "IDLE"
+            return
 
         if self.current is None:
             if self.orders:
-                self._next_order(grid)
+                self._next_order()
             else:
                 self.state = "IDLE"
                 return
         o = self.current
-        kind = o.kind
-
-        if kind == MOVE:
-            self._do_move(grid, o, dt)
-        elif kind == SUPPRESS:
-            self._do_suppress(grid, o, dt, world)
-        elif kind == HOSE:
-            self._do_hose(grid, o, dt)
-        elif kind == CUT:
-            self._do_cut(grid, o, dt)
-        elif kind == DROP:
-            self._do_drop(grid, o, dt, world)
-        elif kind == REFILL:
-            self._do_refill(grid, o, dt, world)
-        elif kind == HOLD:
-            self.state = "WORKING"
-        else:
-            self._finish(grid)
-
-    def _finish(self, grid: FireGrid) -> None:
-        self.current = None
-        self.state = "IDLE"
+        handler = {
+            MOVE: self._do_move,
+            SUPPRESS: self._do_suppress,
+            HOSE: self._do_hose,
+            CUT: self._do_cut,
+            DROP: self._do_drop,
+            REFILL: self._do_refill,
+            PICKUP: self._do_pickup,
+            DROPOFF: self._do_dropoff,
+        }.get(o.kind)
+        if handler is None:
+            self.state = "WORKING"  # HOLD
+            return
+        handler(grid, o, dt, world)
+        # Passengers ride along.
+        for pid in self.passengers:
+            p = world.by_id(pid)
+            if p is not None:
+                p.x, p.y = self.x, self.y
 
     # --- behaviours ----------------------------------------------------------
 
-    def _do_move(self, grid: FireGrid, o: Order, dt: float) -> None:
+    def _do_move(self, grid, o, dt, world) -> None:
         r = self._approach(grid, o.target, 0.6, dt)
         if r is None:
-            self.say("no path to target", grid.time)
+            self.say("no path to target")
         if r is not False:
-            self._finish(grid)
+            self._finish()
 
-    def _do_suppress(self, grid: FireGrid, o: Order, dt: float, world: "World") -> None:
+    def _do_suppress(self, grid, o, dt, world) -> None:
         spec = self.spec
         if self.capacity > 0 and self.tank <= 0.0:
-            self._auto_refill(grid, o, world); return
+            self._auto_refill(grid, o, world)
+            return
         r = float(spec["spray_radius"])
-        # Move within range of the target first.
         a = self._approach(grid, o.target, max(0.9, r * 0.75), dt)
         if a is None:
-            self.say("can't reach suppress target", grid.time)
-            self._finish(grid); return
+            self.say("can't reach suppress target")
+            self._finish()
+            return
         if a is False:
             return
         self.state = "WORKING"
@@ -269,100 +349,110 @@ class Unit:
             return
         hot = (grid.state[ys, xs] == BURNING) | (grid.state[ys, xs] == SMOLDER) | (grid.heat[ys, xs] > 0)
         grid.water[ys, xs] = np.minimum(grid.water[ys, xs] + rate * dt, 1.5)
-        if self.capacity > 0:
+        if self.capacity > 0 and self.capacity < 1e6:
             self.tank -= rate * dt * max(1, int(hot.sum())) * 2.0
-        # Fire boats and hose teams never finish on their own; sprayers stop once nothing nearby is hot.
-        if spec["action"] == "SPRAY" and not self.spec.get("is_civilian") and not hot.any():
-            # Look a little wider before giving up.
+        if spec["action"] == "SPRAY" and not hot.any():
             ys2, xs2 = grid._disc(self.x, self.y, r + 3)
             if not ((grid.state[ys2, xs2] == BURNING) | (grid.state[ys2, xs2] == SMOLDER)).any():
-                self.say("area cold, holding", grid.time)
+                self.say("area cold, holding")
                 self.current = Order(HOLD, o.target)
                 self.state = "WORKING"
 
-    def _auto_refill(self, grid: FireGrid, resume: Order, world: "World") -> None:
-        src = world.nearest_water(grid, self.cell, self.move_class, reach=float(self.spec.get("refill_radius", 2.5)))
+    def _auto_refill(self, grid, resume: Order, world) -> None:
+        src = world.nearest_water(
+            grid, self.cell, self.move_class, reach=float(self.spec.get("refill_radius", 2.5))
+        )
         if src is None:
-            self.say("tank empty, no water source reachable", grid.time)
-            self._finish(grid); return
-        self.say("tank empty, going to refill", grid.time)
+            self.say("tank empty, no water source reachable")
+            self._finish()
+            return
+        self.say("tank empty, going to refill")
         self.current = Order(REFILL, target=src, auto=True)
-        self.orders.appendleft(Order(resume.kind, resume.target, resume.points))
-        self.path = []
+        self.orders.appendleft(Order(resume.kind, resume.target, list(resume.points)))
+        self._reset_order_state()
 
-    def _do_refill(self, grid: FireGrid, o: Order, dt: float, world: "World") -> None:
+    def _do_refill(self, grid, o, dt, world) -> None:
         reach = float(self.spec.get("refill_radius", 2.5))
-        if self.spec.get("reload_at_base"):
+        at_base = bool(self.spec.get("reload_at_base"))
+        if at_base:
             reach = 1.5
         a = self._approach(grid, o.target, reach, dt)
         if a is None:
-            self.say("can't reach water", grid.time)
-            self._finish(grid); return
+            self.say("can't reach water")
+            self._finish()
+            return
         if a is False:
             return
-        if self.spec.get("reload_at_base"):
+        if at_base:
             self.state = "RELOADING"
             self.reload_timer -= dt
             if self.reload_timer <= 0:
                 self.tank = self.capacity
-                self.say("reloaded at base", grid.time)
-                self._finish(grid)
+                self.say("reloaded at base")
+                self._finish()
             return
         self.state = "REFILLING"
         self.tank = min(self.capacity, self.tank + float(self.spec["refill_rate"]) * dt)
         if self.tank >= self.capacity - 1e-6:
-            self.say("refilled", grid.time)
-            self._finish(grid)
+            self.say("refilled")
+            self._finish()
 
-    def _do_hose(self, grid: FireGrid, o: Order, dt: float) -> None:
+    def _do_hose(self, grid, o, dt, world) -> None:
         spec = self.spec
         a = self._approach(grid, o.target, 0.9, dt)
         if a is None:
-            self.say("can't reach hose position", grid.time)
-            self._finish(grid); return
+            self.say("can't reach hose position")
+            self._finish()
+            return
         if a is False:
             self.hose = []
             return
-        # In position. Need a hose line to water.
         if self.state == "HOSE_BURNED":
             self.reconnect_timer -= dt
             if self.reconnect_timer > 0:
                 return
         if not self.hose:
-            if not self._lay_hose(grid):
+            if not self._lay_hose(grid, world):
                 if self.state != "HOSE_BURNED":
-                    self.say("no water source within hose reach", grid.time)
+                    self.say("no water source within hose reach")
                     self.state = "HOSE_BURNED"
                     self.reconnect_timer = 10.0
                 return
-            self.say(f"hose connected ({len(self.hose)} cells)", grid.time)
-        # Burn check.
-        hy = np.array([c[1] for c in self.hose]); hx = np.array([c[0] for c in self.hose])
+            self.say(f"hose connected ({len(self.hose)} cells)")
+        hy = np.fromiter((c[1] for c in self.hose), int)
+        hx = np.fromiter((c[0] for c in self.hose), int)
         if (grid.state[hy, hx] == BURNING).any():
             self.hose = []
             self.state = "HOSE_BURNED"
             self.reconnect_timer = 8.0
-            self.say("HOSE BURNED — reconnecting", grid.time)
+            self.say("HOSE BURNED — reconnecting")
             return
         self.state = "WORKING"
-        r = float(spec["spray_radius"]); rate = float(spec["spray_water"])
+        r = float(spec["spray_radius"])
+        rate = float(spec["spray_water"])
         ys, xs = grid._disc(self.x, self.y, r)
         grid.water[ys, xs] = np.minimum(grid.water[ys, xs] + rate * dt, 1.5)
 
-    def _lay_hose(self, grid: FireGrid) -> bool:
+    def _lay_hose(self, grid, world) -> bool:
+        """Hose runs from the unit to the nearest water source cell (lake edge or a parked
+        engine's tank) within hose_max_length path cells."""
         maxlen = int(self.spec["hose_max_length"])
         cost = build_cost(grid.terrain, grid.state, TERRAIN.cost_for(MoveClass.FOOT))
-        # Hose can cross water edges; treat water as passable for the hose path only at the source.
-        ws = np.argwhere(TERRAIN.is_water_source[grid.terrain])
-        if len(ws) == 0:
-            return False
         cx, cy = self.cell
-        d2 = (ws[:, 1] - cx) ** 2 + (ws[:, 0] - cy) ** 2
-        for idx in np.argsort(d2)[:12]:
-            wy, wx = int(ws[idx][0]), int(ws[idx][1])
-            if math.hypot(wx - cx, wy - cy) > maxlen:
+        candidates: list[tuple[float, int, int]] = []
+        ws = np.argwhere(TERRAIN.is_water_source[grid.terrain])
+        if len(ws):
+            d2 = (ws[:, 1] - cx) ** 2 + (ws[:, 0] - cy) ** 2
+            for idx in np.argsort(d2)[:12]:
+                candidates.append((float(d2[idx]) ** 0.5, int(ws[idx][1]), int(ws[idx][0])))
+        # Engines with water act as a hydrant.
+        for e in world.units:
+            if e.alive and e.utype == "ENGINE" and e.tank > 10 and e.uid != self.uid:
+                candidates.append((math.hypot(e.x - cx, e.y - cy), *e.cell))
+        candidates.sort()
+        for d, wx, wy in candidates:
+            if d > maxlen:
                 break
-            # Path from unit to a land cell adjacent to the water cell.
             p = find_path(cost, (cx, cy), (wx, wy))
             if p is None or len(p) > maxlen:
                 continue
@@ -371,13 +461,15 @@ class Unit:
             return True
         return False
 
-    def _do_cut(self, grid: FireGrid, o: Order, dt: float) -> None:
+    def _do_cut(self, grid, o, dt, world) -> None:
         pts = o.points
         if not pts:
-            self._finish(grid); return
+            self._finish()
+            return
         if self.cut_index >= len(pts):
-            self.say("line complete", grid.time)
-            self._finish(grid); return
+            self.say("line complete")
+            self._finish()
+            return
         tx, ty = pts[self.cut_index]
         d = math.hypot(tx - self.x, ty - self.y)
         if d < 0.5:
@@ -386,18 +478,22 @@ class Unit:
             self.arrived = False
             return
         if self.cut_index == 0:
-            # Travel to the start of the line using normal pathing.
             a = self._approach(grid, (tx, ty), 0.5, dt)
             if a is None:
-                self.say("can't reach line start", grid.time)
-                self._finish(grid); return
+                self.say("can't reach line start")
+                self._finish()
+                return
             if a is True:
                 self.cut_index = 1
                 self.path = []
                 self.arrived = False
             return
-        # Cutting: convert the cell we stand on, then step one cell along the segment.
         self.state = "WORKING"
+        # Hotshots also knock down fire beside the line while they cut.
+        sr = float(self.spec.get("spray_radius", 0))
+        if sr > 0:
+            ys, xs = grid._disc(self.x, self.y, sr)
+            grid.water[ys, xs] = np.minimum(grid.water[ys, xs] + float(self.spec["spray_water"]) * dt, 1.5)
         self.cut_progress += float(self.spec["cut_rate"]) * dt
         if self.cut_progress >= 1.0:
             self.cut_progress = 0.0
@@ -407,11 +503,12 @@ class Unit:
             nx, ny = self.x + (tx - self.x) / d * step, self.y + (ty - self.y) / d * step
             ncx, ncy = int(round(nx)), int(round(ny))
             if grid.state[ncy, ncx] == BURNING:
-                self.say("line blocked by fire", grid.time)
-                self._finish(grid); return
+                self.say("line blocked by fire")
+                self._finish()
+                return
             self.x, self.y = nx, ny
 
-    def _cut_cell(self, grid: FireGrid, cx: int, cy: int) -> None:
+    def _cut_cell(self, grid, cx: int, cy: int) -> None:
         width = int(self.spec["cut_width"])
         dense_ok = bool(self.spec.get("can_cut_dense", False))
         r = 0 if width <= 1 else width // 2
@@ -420,27 +517,26 @@ class Unit:
                 if not (0 <= xx < grid.w and 0 <= yy < grid.h):
                     continue
                 t = int(grid.terrain[yy, xx])
-                if t in (int(TerrainType.WATER), int(TerrainType.ROAD), int(TerrainType.STRUCTURE),
-                         int(TerrainType.GRAVEL), int(TerrainType.SAND), int(TerrainType.FIREBREAK)):
-                    continue
-                if t == int(TerrainType.DENSE_FOREST) and not dense_ok:
+                if t in _NO_CUT or (t == int(TerrainType.DENSE_FOREST) and not dense_ok):
                     continue
                 grid.set_terrain(xx, yy, int(TerrainType.FIREBREAK))
 
-    def _do_drop(self, grid: FireGrid, o: Order, dt: float, world: "World") -> None:
+    def _do_drop(self, grid, o, dt, world) -> None:
         spec = self.spec
         if len(o.points) < 2:
-            self._finish(grid); return
+            self._finish()
+            return
         p0, p1 = o.points[0], o.points[1]
         if self.tank <= 0.0:
-            self._auto_reload(grid, o, world); return
+            self._auto_reload(grid, o, world)
+            return
         if self.drop_phase == 0:
             if not self.path:
                 self.path = [(int(round(p0[0])), int(round(p0[1])))]
             if self._advance(grid, dt):
                 self.drop_phase = 1
                 self.path = [(int(round(p1[0])), int(round(p1[1])))]
-                self.say("beginning drop", grid.time)
+                self.say("beginning drop")
             self.state = "MOVING"
             return
         if self.drop_phase == 1:
@@ -452,58 +548,245 @@ class Unit:
             strength = float(spec.get("drop_strength", 0.7))
             seg = math.hypot(self.x - ox, self.y - oy)
             total = max(1.0, math.hypot(p1[0] - p0[0], p1[1] - p0[1]))
-            amount = strength * (seg / total) * 6.0
-            grid.apply_line(ox, oy, self.x, self.y, width, agent, amount)
+            grid.apply_line(ox, oy, self.x, self.y, width, agent, strength * (seg / total) * 6.0)
             self.tank -= self.capacity * (seg / total)
             if done or self.tank <= 0:
                 self.drop_phase = 2
-                self.say("drop complete", grid.time)
+                self.say("drop complete")
                 self.tank = max(0.0, self.tank)
-                self._finish(grid)
+                self._finish()
                 if self.tank <= 0.0 or self.spec.get("reload_at_base"):
                     self._auto_reload(grid, None, world)
 
-    def _auto_reload(self, grid: FireGrid, resume: Order | None, world: "World") -> None:
+    def _auto_reload(self, grid, resume: Order | None, world) -> None:
         if self.spec.get("reload_at_base"):
-            base = world.airbase
-            self.say("returning to base to reload", grid.time)
-            self.current = Order(REFILL, target=base, auto=True)
+            self.say("returning to base to reload")
+            self.current = Order(REFILL, target=world.airbase, auto=True)
             self.reload_timer = float(self.spec["reload_seconds"])
         else:
             src = world.nearest_water(grid, self.cell, MoveClass.AIR, reach=2.5)
             if src is None:
-                self.say("no water to refill from", grid.time)
-                self._finish(grid); return
-            self.say("going to refill", grid.time)
+                self.say("no water to refill from")
+                self._finish()
+                return
+            self.say("going to refill")
             self.current = Order(REFILL, target=src, auto=True)
         if resume is not None:
             self.orders.appendleft(Order(resume.kind, resume.target, list(resume.points)))
-        self.path = []
+        self._reset_order_state()
 
-    def _flee(self, grid: FireGrid) -> None:
-        # Walk to nearest non-burning passable cell.
-        cost = build_cost(grid.terrain, grid.state, TERRAIN.cost_for(self.move_class))
+    def _do_pickup(self, grid, o, dt, world) -> None:
+        target = world.by_id(o.unit_id)
+        if target is None or not target.alive or target.in_vehicle is not None or not target.is_foot:
+            self.say("nothing to pick up")
+            self._finish()
+            return
+        if len(self.passengers) >= self.passenger_slots:
+            self.say("no room aboard")
+            self._finish()
+            return
+        a = self._approach(grid, (target.x, target.y), 1.2, dt)
+        if a is None:
+            self.say("can't reach pickup")
+            self._finish()
+            return
+        if a is False:
+            return
+        target.in_vehicle = self.uid
+        target.orders.clear()
+        target.current = None
+        target._reset_order_state()
+        target.hose = []
+        target.state = ABOARD
+        self.passengers.append(target.uid)
+        self.say(f"picked up {target.label}")
+        self._finish()
+
+    def _do_dropoff(self, grid, o, dt, world) -> None:
+        if not self.passengers:
+            self._finish()
+            return
+        a = self._approach(grid, o.target, 1.2, dt)
+        if a is None:
+            self.say("can't reach drop-off")
+            self._finish()
+            return
+        if a is False:
+            return
+        for pid in list(self.passengers):
+            p = world.by_id(pid)
+            if p is None:
+                continue
+            px, py = World.snap_passable(grid, p.move_class, self.x, self.y)
+            p.x, p.y = px, py
+            p.in_vehicle = None
+            p.state = "IDLE"
+            if p.is_civilian and world.in_safe_zone((px, py)):
+                p.rescued = True
+                p.state = SAFE
+                self.say(f"{p.label} delivered to safety")
+            else:
+                self.say(f"dropped off {p.label}")
+        self.passengers.clear()
+        self._finish()
+
+    # --- survival ------------------------------------------------------------
+
+    def _fire_near(self, grid, r: float) -> tuple[float, float] | None:
+        """Centroid of burning cells within r, or None."""
+        ys, xs = grid._disc(self.x, self.y, r)
+        if len(ys) == 0:
+            return None
+        b = grid.state[ys, xs] == BURNING
+        if not b.any():
+            return None
+        return float(xs[b].mean()), float(ys[b].mean())
+
+    def _safe_cell(
+        self, grid, away_from: tuple[float, float] | None, clear: int = 4, max_r: int = 16
+    ) -> tuple[int, int] | None:
+        """Nearest passable cell with no fire within `clear`, preferring away from `away_from`."""
+        cost = TERRAIN.cost_for(self.move_class)
         cx, cy = self.cell
-        best = None
-        for r in range(1, 6):
-            for dy in range(-r, r + 1):
-                for dx in range(-r, r + 1):
+        best, bs = None, -1e9
+        for r in range(2, max_r + 1, 2):
+            for dy in range(-r, r + 1, 2):
+                for dx in range(-r, r + 1, 2):
                     x, y = cx + dx, cy + dy
-                    if 0 <= x < grid.w and 0 <= y < grid.h and math.isfinite(cost[y, x]):
-                        best = (x, y); break
-                if best: break
-            if best: break
-        if best:
-            self.x, self.y = float(best[0]), float(best[1])
+                    if not (0 <= x < grid.w and 0 <= y < grid.h) or not math.isfinite(
+                        cost[grid.terrain[y, x]]
+                    ):
+                        continue
+                    ys, xs = grid._disc(x, y, clear)
+                    if (grid.state[ys, xs] == BURNING).any():
+                        continue
+                    score = -math.hypot(dx, dy)
+                    if away_from is not None:
+                        score += 0.5 * math.hypot(x - away_from[0], y - away_from[1])
+                    if score > bs:
+                        bs, best = score, (x, y)
+            if best is not None:
+                return best
+        return None
+
+    def _flee_to_safety(self, grid) -> None:
+        c = self._safe_cell(grid, self._fire_near(grid, 6))
+        if c is not None:
+            self.x, self.y = float(c[0]), float(c[1])
+
+    def _civilian(self, grid, dt: float, world) -> None:
+        if self.state in (SAFE, LOST):
+            return
+        cx, cy = self.cell
+        if grid.state[cy, cx] == BURNING:
+            self.alive = False
+            self.state = LOST
+            self.say("lost to the fire")
+            return
+        if world.in_safe_zone((self.x, self.y)):
+            self.rescued = True
+            self.state = SAFE
+            self.say("reached safety")
+            return
+        near = self._fire_near(grid, float(self.spec.get("flee_radius", 9)))
+        self.flee_timer -= dt
+        if near is not None and (self.flee_timer <= 0 or not self.path):
+            self.flee_timer = 6.0
+            c = self._safe_cell(grid, near, clear=6, max_r=20)
+            if c is not None:
+                cost = build_cost(grid.terrain, grid.state, TERRAIN.cost_for(self.move_class))
+                p = find_path(cost, self.cell, c)
+                self.path = p or []
+                if self.state != FLEEING:
+                    self.say("fleeing the fire")
+                self.state = FLEEING
+        if self.path:
+            self._advance(grid, dt)
+        elif near is None:
+            self.state = "IDLE"
+
+    # --- (de)serialisation -----------------------------------------------------
+
+    def to_dict(self) -> dict:
+        return {
+            "utype": self.utype,
+            "x": self.x,
+            "y": self.y,
+            "uid": self.uid,
+            "state": self.state,
+            "orders": [o.to_dict() for o in self.orders],
+            "current": self.current.to_dict() if self.current else None,
+            "path": [list(p) for p in self.path],
+            "tank": self.tank,
+            "hose": [list(c) for c in self.hose],
+            "hose_source": list(self.hose_source) if self.hose_source else None,
+            "reconnect_timer": self.reconnect_timer,
+            "reload_timer": self.reload_timer,
+            "replan_cooldown": self.replan_cooldown,
+            "arrived": self.arrived,
+            "cut_progress": self.cut_progress,
+            "cut_index": self.cut_index,
+            "drop_phase": self.drop_phase,
+            "passengers": list(self.passengers),
+            "in_vehicle": self.in_vehicle,
+            "rescued": self.rescued,
+            "alive": self.alive,
+            "flee_timer": self.flee_timer,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Unit":
+        u = cls(d["utype"], float(d["x"]), float(d["y"]), uid=int(d["uid"]))
+        u.state = d["state"]
+        u.orders = deque(Order.from_dict(o) for o in d["orders"])
+        u.current = Order.from_dict(d["current"]) if d["current"] else None
+        u.path = [tuple(p) for p in d["path"]]
+        u.tank = float(d["tank"])
+        u.hose = [tuple(c) for c in d["hose"]]
+        u.hose_source = tuple(d["hose_source"]) if d["hose_source"] else None
+        for k in (
+            "reconnect_timer",
+            "reload_timer",
+            "replan_cooldown",
+            "arrived",
+            "cut_progress",
+            "cut_index",
+            "drop_phase",
+            "passengers",
+            "in_vehicle",
+            "rescued",
+            "alive",
+            "flee_timer",
+        ):
+            setattr(u, k, d[k])
+        return u
+
+
+@dataclass
+class Arrival:
+    utype: str
+    at: float
+    x: float
+    y: float
 
 
 class World:
-    """Container for units plus shared lookups (water sources, airbase)."""
+    """Container for units plus shared lookups (water sources, airbase, staging, safe zone)."""
 
-    def __init__(self, airbase: tuple[float, float] = (0.0, 0.0)):
+    def __init__(
+        self,
+        airbase: tuple[float, float] = (0.0, 0.0),
+        staging: tuple[float, float] | None = None,
+        safe_zone: tuple[float, float, float] | None = None,
+    ):
         self.units: list[Unit] = []
-        self.airbase = airbase
+        self.airbase = tuple(airbase)
+        self.staging = tuple(staging) if staging else tuple(airbase)
+        self.safe_zone = tuple(safe_zone) if safe_zone else None  # (x, y, radius)
+        self.pending: list[Arrival] = []
         self._next_uid = 1  # per-world counter so replays assign identical ids
+
+    # ---- spawning -------------------------------------------------------------------
 
     def add(self, utype: str, x: float, y: float, grid: "FireGrid | None" = None) -> Unit:
         if utype not in UNITS:
@@ -515,12 +798,41 @@ class World:
         self.units.append(u)
         return u
 
+    def spawn_point(self, utype: str, x: float | None, y: float | None) -> tuple[float, float]:
+        """Where a purchased unit appears: aircraft at the airbase, everything else at staging,
+        unless the caller gave explicit coordinates."""
+        if x is not None and y is not None:
+            return float(x), float(y)
+        mc = UNITS[utype]["movement_class"]
+        return self.airbase if mc == MoveClass.AIR else self.staging
+
+    def request(self, utype: str, now: float, x: float | None = None, y: float | None = None) -> Arrival:
+        """Queue a unit to arrive after its dispatch delay."""
+        px, py = self.spawn_point(utype, x, y)
+        a = Arrival(utype, now + float(UNITS[utype].get("arrival_seconds", 0)), px, py)
+        self.pending.append(a)
+        return a
+
+    def _deliver(self, grid: "FireGrid", now: float) -> list[Unit]:
+        arrived = []
+        for a in list(self.pending):
+            if a.at <= now:
+                u = self.add(a.utype, a.x, a.y, grid)
+                u._t = now
+                u.say("arrived on scene", now)
+                arrived.append(u)
+                self.pending.remove(a)
+        return arrived
+
     @staticmethod
-    def snap_passable(grid: FireGrid, mc: MoveClass, x: float, y: float, max_r: int = 12) -> tuple[float, float]:
+    def snap_passable(
+        grid: "FireGrid", mc: MoveClass, x: float, y: float, max_r: int = 12
+    ) -> tuple[float, float]:
         """Nearest cell this movement class can stand on (scenario placement is forgiving)."""
         cost = TERRAIN.cost_for(mc)
         cx, cy = int(round(x)), int(round(y))
-        cx = min(max(cx, 0), grid.w - 1); cy = min(max(cy, 0), grid.h - 1)
+        cx = min(max(cx, 0), grid.w - 1)
+        cy = min(max(cy, 0), grid.h - 1)
         if math.isfinite(cost[grid.terrain[cy, cx]]):
             return float(cx), float(cy)
         best, bd = None, 1e9
@@ -535,14 +847,28 @@ class World:
                 return float(best[0]), float(best[1])
         return float(cx), float(cy)
 
-    def by_id(self, uid: int) -> Unit | None:
+    # ---- queries ----------------------------------------------------------------------
+
+    def by_id(self, uid: int | None) -> Unit | None:
+        if uid is None:
+            return None
         for u in self.units:
             if u.uid == uid:
                 return u
         return None
 
-    def nearest_water(self, grid: FireGrid, frm: tuple[int, int], mc: MoveClass,
-                      reach: float = 2.5) -> tuple[int, int] | None:
+    def in_safe_zone(self, p: tuple[float, float]) -> bool:
+        if self.safe_zone is None:
+            return False
+        x, y, r = self.safe_zone
+        return math.hypot(p[0] - x, p[1] - y) <= r
+
+    def civilians(self) -> list[Unit]:
+        return [u for u in self.units if u.is_civilian]
+
+    def nearest_water(
+        self, grid: "FireGrid", frm: tuple[int, int], mc: MoveClass, reach: float = 2.5
+    ) -> tuple[int, int] | None:
         """Nearest cell from which this unit can touch a water source."""
         ws = np.argwhere(TERRAIN.is_water_source[grid.terrain])
         if len(ws) == 0:
@@ -556,9 +882,9 @@ class World:
         cost = build_cost(grid.terrain, grid.state, TERRAIN.cost_for(mc))
         for idx in order[:40]:
             wy, wx = int(ws[idx][0]), int(ws[idx][1])
-            # Find a passable cell within reach of this water cell.
             r = int(math.ceil(reach))
-            best = None; bd = 1e9
+            best = None
+            bd = 1e9
             for yy in range(max(0, wy - r), min(grid.h, wy + r + 1)):
                 for xx in range(max(0, wx - r), min(grid.w, wx + r + 1)):
                     if math.isfinite(cost[yy, xx]) and math.hypot(xx - wx, yy - wy) <= reach:
@@ -571,6 +897,32 @@ class World:
                 return best
         return None
 
-    def update(self, grid: FireGrid, dt: float) -> None:
+    # ---- tick -------------------------------------------------------------------------
+
+    def update(self, grid: "FireGrid", dt: float) -> list[Unit]:
+        arrived = self._deliver(grid, grid.time)
         for u in self.units:
             u.update(grid, dt, self)
+        return arrived
+
+    # ---- (de)serialisation -------------------------------------------------------------
+
+    def to_dict(self) -> dict:
+        return {
+            "airbase": list(self.airbase),
+            "staging": list(self.staging),
+            "safe_zone": list(self.safe_zone) if self.safe_zone else None,
+            "next_uid": self._next_uid,
+            "units": [u.to_dict() for u in self.units],
+            "pending": [a.__dict__ for a in self.pending],
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "World":
+        w = cls(
+            tuple(d["airbase"]), tuple(d["staging"]), tuple(d["safe_zone"]) if d.get("safe_zone") else None
+        )
+        w._next_uid = int(d["next_uid"])
+        w.units = [Unit.from_dict(u) for u in d["units"]]
+        w.pending = [Arrival(**a) for a in d["pending"]]
+        return w

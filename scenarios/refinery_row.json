@@ -1,0 +1,87 @@
+{
+  "name": "Refinery Row",
+  "briefing": "An industrial strip along the highway with a grass fire upwind. Structures are the objective and you lose if more than three burn. Buy what you need; retardant ahead of the fire and engines on the road are the tools that work here.",
+  "notes": "Mission name from the original RTS (brief \u00a75); layout is new.",
+  "seed": 33,
+  "width": 128,
+  "height": 80,
+  "moisture": 0.1,
+  "wind": {
+    "speed": 7,
+    "bearing": 100
+  },
+  "airbase": [
+    3,
+    3
+  ],
+  "staging": [
+    8,
+    40
+  ],
+  "duration": 1500,
+  "budget": 12000,
+  "available_units": [
+    "ENGINE",
+    "BRUSH_TRUCK",
+    "BULLDOZER",
+    "HOSE_TEAM",
+    "CUT_TEAM",
+    "RETARDANT_BOMBER",
+    "WATER_BOMBER"
+  ],
+  "terrain": {
+    "mode": "generate",
+    "params": {
+      "water_level": 0.2,
+      "shrub_level": 0.55,
+      "forest_level": 0.7,
+      "dense_level": 0.9,
+      "roads": 2,
+      "structures": 30
+    }
+  },
+  "ignitions": [
+    {
+      "x": 8,
+      "y": 30,
+      "radius": 1
+    },
+    {
+      "x": 10,
+      "y": 50,
+      "radius": 1
+    }
+  ],
+  "units": [
+    {
+      "type": "ENGINE",
+      "x": 8,
+      "y": 40
+    },
+    {
+      "type": "HOSE_TEAM",
+      "x": 10,
+      "y": 42
+    }
+  ],
+  "objectives": {
+    "max_structures_lost": 3,
+    "win_on_contained": true
+  },
+  "events": [
+    {
+      "at": 400,
+      "ignite": {
+        "x": 70,
+        "y": 12,
+        "radius": 1
+      },
+      "message": "Spot fire reported north of the highway"
+    },
+    {
+      "at": 600,
+      "budget": 3000,
+      "message": "County released additional funds"
+    }
+  ]
+}
