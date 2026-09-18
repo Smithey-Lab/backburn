@@ -1,3 +1,8 @@
+## Backburn v0.3.2 — Windows installation fix
+
+- Install into a fresh version folder and activate it only after the copy completes, avoiding Windows directory-rename permission failures.
+- Existing saves and the previous installed version are preserved during updates.
+
 ## Backburn v0.3.1 — planning time and larger maps
 
 - Normal speed now advances one simulation second per real second, six times slower than v0.3.0.
