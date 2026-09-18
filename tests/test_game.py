@@ -30,8 +30,13 @@ def test_mission_selection_and_deployment_by_mouse(game):
     game.update(1)
     assert game.sim.tick == 0
     game.handle(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
-    game.update(0.1)
-    game.update(0.1)
+    assert game.paused
+    for _ in range(20):
+        game.update(0.1)
+    assert game.sim.tick == 0
+    game.handle(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE))
+    for _ in range(12):
+        game.update(0.1)
     assert game.sim.tick > 0
 
 
@@ -42,7 +47,7 @@ def test_ui_order_clamps_map_edges_and_save_load_restores(game):
     game.issue(game.clamp_point((-100, -30)), game.clamp_point((999, 999)))
     order = game.sim.world.by_id(4).orders[0]
     assert order.kind == "CUT"
-    assert order.points == [(0, 0), (127, 95)]
+    assert order.points == [(0, 0), (255, 191)]
     game.sim.step(3)
     game.save()
     before = game.sim.state_hash()

@@ -22,7 +22,7 @@ second simulation implementation, and supports standalone PyInstaller packaging.
 The Godot folder is an archived port experiment, not the current shipping engine.
 The earlier engine choices below describe the prototype's original plan.
 
-The desktop runs six fixed simulation ticks per real second at normal speed;
+As of v0.3.1 the desktop runs one fixed simulation tick per real second at normal speed;
 the older tuning harness retains ten. Each tick still represents one simulated
 second, so replays and balance remain deterministic. Pausing supports planning.
 

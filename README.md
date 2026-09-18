@@ -45,6 +45,10 @@ This is a game, not an operational wildfire model. Balance is experimental.
 | Dispatch / help / overlay | B / H / O |
 | Save / load / export replay | F6 / F7 / F5 |
 
+Incidents open paused for planning. Normal speed is one simulation second per real second.
+Maps extend beyond the initial camera view; use WASD, the wheel or the minimap to explore,
+and Home for an overview.
+
 Start with Stranded Hikers for a short rescue mission, or Prairie Fire to use the full fleet.
 
 ## Development
