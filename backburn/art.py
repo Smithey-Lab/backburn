@@ -49,11 +49,18 @@ def terrain_surface(sim, overlay=None):
     return pygame.surfarray.make_surface(np.transpose(rgb, (1, 0, 2)))
 
 
+def tree_cells(terrain, state):
+    """A tree's location depends only on its cell, never the count of surviving trees."""
+    ys, xs = np.indices(terrain.shape)
+    placement = ((xs * 73) ^ (ys * 151)) % 5 < 2
+    return np.nonzero(placement & ((terrain == T.FOREST) | (terrain == T.DENSE_FOREST)) & (state == 0))
+
+
 def details(screen, sim, to_screen, zoom, viewport, clock):
     g = sim.grid
     if zoom >= 5:
-        ys, xs = np.nonzero(((g.terrain == T.FOREST) | (g.terrain == T.DENSE_FOREST)) & (g.state == 0))
-        for x, y in zip(xs[::3], ys[::3]):
+        ys, xs = tree_cells(g.terrain, g.state)
+        for x, y in zip(xs, ys):
             sx, sy = to_screen(x, y)
             if not viewport.collidepoint(sx, sy):
                 continue

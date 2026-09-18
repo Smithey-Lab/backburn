@@ -1,3 +1,12 @@
+## Backburn v0.3.1 — planning time and larger maps
+
+- Normal speed now advances one simulation second per real second, six times slower than v0.3.0.
+- Every new incident opens paused so you can inspect the terrain and queue orders before resuming.
+- Tree positions stay fixed when other trees burn; surviving trees no longer reshuffle.
+- Desktop maps are twice as wide and tall, preserving the original geography and objectives.
+- The camera starts at tactical zoom near staging and the fire. WASD, wheel zoom, Home and the minimap navigate the larger map.
+- Civilian markers are now visible on the minimap. Old saves retain their original map dimensions.
+
 ## Backburn v0.3.0 — first desktop demo
 
 An original top-down wildfire tactics game, built from the supplied v0.2 simulation.

@@ -13,6 +13,7 @@ import pygame
 
 from . import __version__
 from .art import details, terrain_surface, unit_icon
+from .campaign import expanded_scenario
 from .config import TERRAIN, UNITS
 from .render import OVERLAYS
 from .scenario import load_scenario
@@ -27,6 +28,7 @@ INK = (234, 232, 216)
 MUTED = (153, 173, 168)
 ORANGE = (238, 157, 82)
 TEAL = (124, 201, 179)
+NORMAL_TICKS_PER_SECOND = 1
 MISSIONS = ["prairie_fire", "stranded_hikers", "refinery_row", "wall_of_fire"]
 DESCRIPTIONS = [
     "Hold the road. Protect the settlement.",
@@ -63,7 +65,9 @@ class Game:
         self.page = "menu"
         self.modal = None
         self.mission = 0
-        self.scenarios = [load_scenario(scenario_dir() / f"{key}.json") for key in MISSIONS]
+        self.scenarios = [
+            expanded_scenario(load_scenario(scenario_dir() / f"{key}.json")) for key in MISSIONS
+        ]
         self.previews = [terrain_surface(Simulation(s)) for s in self.scenarios]
         self.settings = read_json(data_dir() / "settings.json", {"sound": True})
         self.progress = read_json(data_dir() / "progress.json", {})
@@ -146,6 +150,23 @@ class Game:
         self.zoom = min(self.viewport.w / g.w, self.viewport.h / g.h)
         self.cam = [(g.w - self.viewport.w / self.zoom) / 2, (g.h - self.viewport.h / self.zoom) / 2]
 
+    def tactical_camera(self):
+        self.zoom = 8.0
+        x, y = self.sim.world.staging
+        if self.sim.scenario.ignitions:
+            fire = min(self.sim.scenario.ignitions, key=lambda p: math.hypot(p["x"] - x, p["y"] - y))
+            x, y = (x + fire["x"]) / 2, (y + fire["y"]) / 2
+        self.cam = [x - self.viewport.w / self.zoom / 2, y - self.viewport.h / self.zoom / 2]
+        self.clamp_camera()
+
+    def clamp_camera(self):
+        for axis, (size, visible) in enumerate(
+            ((self.sim.grid.w, self.viewport.w / self.zoom), (self.sim.grid.h, self.viewport.h / self.zoom))
+        ):
+            self.cam[axis] = (
+                (size - visible) / 2 if visible >= size else min(size - visible, max(0, self.cam[axis]))
+            )
+
     def to_screen(self, x, y):
         return (
             round(self.viewport.x + (x + 0.5 - self.cam[0]) * self.zoom),
@@ -162,7 +183,9 @@ class Game:
         return (min(self.sim.grid.w - 1, max(0, p[0])), min(self.sim.grid.h - 1, max(0, p[1])))
 
     def start(self, sandbox=False):
-        self.sim = Simulation(load_scenario(scenario_dir() / f"{MISSIONS[self.mission]}.json"))
+        self.sim = Simulation(
+            expanded_scenario(load_scenario(scenario_dir() / f"{MISSIONS[self.mission]}.json"))
+        )
         self.sandbox = sandbox
         if sandbox:
             self.sim.scenario.objectives = {"win_on_contained": False}
@@ -181,7 +204,7 @@ class Game:
         self.editor_tool = None
         self.order_mode = "AUTO"
         self.overlay = 0
-        self.fit()
+        self.tactical_camera()
 
     def save(self, name="quicksave.bbsave"):
         try:
@@ -220,7 +243,8 @@ class Game:
             self.start(True)
         elif action == "begin":
             self.modal = None
-            self.paused = False
+            self.paused = True
+            self.say("Planning phase: position your camera and queue orders. Press Resume when ready.")
         elif action == "close":
             self.modal = None
         elif action == "pause":
@@ -636,10 +660,12 @@ class Game:
             self.viewport.h / self.zoom / self.sim.grid.h * self.minimap.h,
         )
         pygame.draw.rect(self.screen, INK, vr, 1)
-        for u in roster:
+        for u in self.sim.world.units:
+            if not u.alive or u.rescued or u.state == ABOARD:
+                continue
             pygame.draw.circle(
                 self.screen,
-                INK,
+                ORANGE if u.is_civilian else INK,
                 (
                     round(self.minimap.x + u.x / self.sim.grid.w * self.minimap.w),
                     round(self.minimap.y + u.y / self.sim.grid.h * self.minimap.h),
@@ -672,7 +698,7 @@ class Game:
             )
         if self.paused and not self.modal:
             pygame.draw.rect(self.screen, BG, (self.viewport.centerx - 94, 106, 188, 33), border_radius=4)
-            self.text("PAUSED / SPACE", self.viewport.centerx - 69, 112, 15, ORANGE)
+            self.text("PLAN / SPACE", self.viewport.centerx - 60, 112, 15, ORANGE)
 
     def draw_modal(self):
         if not self.modal:
@@ -698,7 +724,7 @@ class Game:
                 else "Select a unit in the roster. Right-click to move or attack. Right-drag a line with crews to cut a firebreak, or with aircraft to drop water. Pause any time to plan."
             )
             self.wrap(tip, x, max(bottom + 25, y + 275), 644, 17)
-            self.button("BEGIN OPERATION / ENTER", (x, rect.bottom - 78, 652, 46), "begin", True)
+            self.button("OPEN MAP TO PLAN / ENTER", (x, rect.bottom - 78, 652, 46), "begin", True)
         elif self.modal == "help":
             self.text("FIELD GUIDE", x, y, 32)
             lines = [
@@ -801,11 +827,12 @@ class Game:
         self.cam[0] += (keys[pygame.K_d] - keys[pygame.K_a]) * dt * 350 / self.zoom
         self.cam[1] += (keys[pygame.K_s] - keys[pygame.K_w]) * dt * 350 / self.zoom
         if not self.paused and self.sim.outcome == RUNNING:
-            self.acc += min(dt, 0.1) * 6 * self.speed
+            self.acc += min(dt, 0.1) * NORMAL_TICKS_PER_SECOND * self.speed
             n = int(self.acc)
             if n:
                 self.sim.step(n)
                 self.acc -= n
+        self.clamp_camera()
         if self.sim.tick - self.auto_tick >= 180:
             try:
                 save_game(self.sim, "autosave.bbsave")
