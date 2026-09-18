@@ -21,8 +21,8 @@ def test_trees_keep_their_positions_when_other_trees_burn():
 def test_expanded_mission_retains_geography_and_rescue_is_winnable():
     source = load_scenario(scenario_dir() / "stranded_hikers.json")
     expanded = expanded_scenario(source)
-    assert (expanded.width, expanded.height) == (192, 144)
-    assert np.array_equal(expanded.build_terrain()[::2, ::2], source.build_terrain())
+    assert (expanded.width, expanded.height) == (288, 216)
+    assert np.array_equal(expanded.build_terrain()[::3, ::3], source.build_terrain())
     sim = Simulation(expanded)
     heli = sim.world.units[0]
     for civilian in sim.world.civilians():

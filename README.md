@@ -46,8 +46,12 @@ This is a game, not an operational wildfire model. Balance is experimental.
 | Save / load / export replay | F6 / F7 / F5 |
 
 Incidents open paused for planning. Normal speed is one simulation second per real second.
-Maps extend beyond the initial camera view; use WASD, the wheel or the minimap to explore,
+New mission maps are 50% wider and taller than v0.3.2. Maps extend beyond the initial camera view; use WASD, the wheel or the minimap to explore,
 and Home for an overview.
+
+Planes stage off-map at the sides. Select one in the roster and right-drag a drop line.
+They fly in, drop, exit, and reload off-map. Watch for **READY 100%** or the reload countdown.
+You can queue the next run while reloading. Helicopters can still hover and rescue.
 
 Start with Stranded Hikers for a short rescue mission, or Prairie Fire to use the full fleet.
 
