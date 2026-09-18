@@ -14,6 +14,26 @@ research brief), **inferred** (from screenshots/descriptions), or **new** (our c
 
 ## Engine and language
 
+### v0.3 shipping decision
+
+The first downloadable Windows release ships the existing NumPy simulation with a
+new pygame-ce desktop interface. This retains the tested v0.2 mechanics, avoids a
+second simulation implementation, and supports standalone PyInstaller packaging.
+The Godot folder is an archived port experiment, not the current shipping engine.
+The earlier engine choices below describe the prototype's original plan.
+
+The desktop runs six fixed simulation ticks per real second at normal speed;
+the older tuning harness retains ten. Each tick still represents one simulated
+second, so replays and balance remain deterministic. Pausing supports planning.
+
+New art is generated from geometric sprites and seeded map coordinates. UI audio
+is synthesized locally; no source-game assets are bundled. Saves use per-user
+storage outside the installation. Updates stage complete, checksummed versions
+from GitHub Releases and switch a small current-version pointer after validation.
+
+Rescue-only missions (rescue_all_civilians true and win_on_contained false) finish
+when everyone is safe. Containment missions wait for scheduled future ignitions.
+
 - **Shipping engine: Godot 4.3+.** *(new)* Text-based scenes, headless CLI, one-command
   Windows export, and a UI toolkit we don't have to write. Unity and Unreal rejected
   for agent-workflow reasons (editor-bound, binary Blueprints).

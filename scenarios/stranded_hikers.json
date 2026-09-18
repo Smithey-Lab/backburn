@@ -90,7 +90,7 @@
   "objectives": {
     "rescue_all_civilians": true,
     "max_civilians_lost": 0,
-    "win_on_contained": true
+    "win_on_contained": false
   },
   "events": [
     {

@@ -1,7 +1,8 @@
 """Print fire front speeds per fuel type — the number to look at after changing constants.
 
-    python tools/front_speed.py [wind_mps]
+python tools/front_speed.py [wind_mps]
 """
+
 import sys
 from pathlib import Path
 
@@ -18,7 +19,8 @@ for tt in (T.GRASS, T.SHRUB, T.FOREST, T.DENSE_FOREST):
     out = []
     for w in (wind, 0.0):
         g = FireGrid(np.full((128, 128), int(tt), np.uint8), seed=3)
-        g.set_wind(w, 90); g.ignite(20, 64, 1)
+        g.set_wind(w, 90)
+        g.ignite(20, 64, 1)
         for _ in range(120):
             g.step()
         xs = np.nonzero(g.state > 0)[1]

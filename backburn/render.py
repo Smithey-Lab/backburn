@@ -7,6 +7,7 @@ Colour language follows the brief §7: flat blocky terrain with hard separation,
 orange/yellow fire over red-hot cells, dark burn scar, small unit squares with
 selection rings, white dotted order lines, visible drop/spray circles.
 """
+
 from __future__ import annotations
 
 import math
@@ -60,8 +61,9 @@ def base_rgb(sim: Simulation, overlay: str | None = None) -> np.ndarray:
     return rgb
 
 
-def frame(sim: Simulation, scale: int = 5, hud: bool = True, selected: int | None = None,
-          overlay: str | None = None) -> Image.Image:
+def frame(
+    sim: Simulation, scale: int = 5, hud: bool = True, selected: int | None = None, overlay: str | None = None
+) -> Image.Image:
     rgb = base_rgb(sim, overlay)
     img = Image.fromarray(rgb, "RGB").resize((sim.grid.w * scale, sim.grid.h * scale), Image.NEAREST)
     d = ImageDraw.Draw(img)
@@ -70,8 +72,11 @@ def frame(sim: Simulation, scale: int = 5, hud: bool = True, selected: int | Non
     # Safe zone, staging, airbase.
     if sim.world.safe_zone:
         zx, zy, zr = sim.world.safe_zone
-        d.ellipse([(zx - zr) * s, (zy - zr) * s, (zx + zr + 1) * s, (zy + zr + 1) * s],
-                  outline=(120, 255, 120), width=2)
+        d.ellipse(
+            [(zx - zr) * s, (zy - zr) * s, (zx + zr + 1) * s, (zy + zr + 1) * s],
+            outline=(120, 255, 120),
+            width=2,
+        )
     sx_, sy_ = sim.world.staging
     d.rectangle([sx_ * s, sy_ * s, sx_ * s + 2 * s, sy_ * s + 2 * s], outline=(255, 220, 120))
     ax, ay = sim.world.airbase
@@ -94,13 +99,18 @@ def frame(sim: Simulation, scale: int = 5, hud: bool = True, selected: int | Non
             for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
                 _dotted(d, x0, y0, x1, y1, s)
         if u.current is not None and u.current.kind == CUT and u.current.points:
-            pts = [(cx, cy)] + [(px * s + s / 2, py * s + s / 2) for px, py in u.current.points[u.cut_index:]]
+            pts = [(cx, cy)] + [
+                (px * s + s / 2, py * s + s / 2) for px, py in u.current.points[u.cut_index :]
+            ]
             if len(pts) > 1:
                 d.line(pts, fill=(255, 230, 120), width=1)
         if u.current is not None and u.current.kind == DROP and len(u.current.points) >= 2:
             (x0, y0), (x1, y1) = u.current.points[:2]
-            d.line([(x0 * s + s / 2, y0 * s + s / 2), (x1 * s + s / 2, y1 * s + s / 2)],
-                   fill=(150, 220, 255), width=max(1, s // 2))
+            d.line(
+                [(x0 * s + s / 2, y0 * s + s / 2), (x1 * s + s / 2, y1 * s + s / 2)],
+                fill=(150, 220, 255),
+                width=max(1, s // 2),
+            )
         spec = UNITS[u.utype]
         if u.state == "WORKING" and spec.get("spray_radius", 0) > 0:
             r = spec["spray_radius"] * s
@@ -111,7 +121,9 @@ def frame(sim: Simulation, scale: int = 5, hud: bool = True, selected: int | Non
             fill = (90, 90, 90) if u.state == LOST else ((120, 255, 120) if u.state == SAFE else col)
             d.ellipse([cx - half, cy - half, cx + half, cy + half], fill=fill, outline=(0, 0, 0))
         elif u.is_air:
-            d.polygon([(cx, cy - half), (cx + half, cy + half), (cx - half, cy + half)], fill=col, outline=(0, 0, 0))
+            d.polygon(
+                [(cx, cy - half), (cx + half, cy + half), (cx - half, cy + half)], fill=col, outline=(0, 0, 0)
+            )
         else:
             d.rectangle([cx - half, cy - half, cx + half, cy + half], fill=col, outline=(0, 0, 0))
         if selected == u.uid:
@@ -125,8 +137,10 @@ def frame(sim: Simulation, scale: int = 5, hud: bool = True, selected: int | Non
     if hud:
         st = sim.stats()
         civ = st["civilians"]
-        txt = (f"t={st['time']:.0f}s  burning={st['burning']}  burned={st['area_burned_pct']:.1f}%  "
-               f"bldg lost {st['structures_lost']}/{st['structures_total']}  ")
+        txt = (
+            f"t={st['time']:.0f}s  burning={st['burning']}  burned={st['area_burned_pct']:.1f}%  "
+            f"bldg lost {st['structures_lost']}/{st['structures_total']}  "
+        )
         if civ["total"]:
             txt += f"civ {civ['rescued']}/{civ['total']} safe, {civ['lost']} lost  "
         txt += f"wind {sim.grid.wind_speed:.0f} m/s → {sim.grid.wind_bearing:.0f}°"
@@ -153,8 +167,15 @@ def _wind_arrow(bearing: float) -> tuple[float, float]:
     return math.sin(r), -math.cos(r)
 
 
-def record_gif(sim: Simulation, path: str | Path, ticks: int, every: int = 10, scale: int = 4,
-               callback=None, overlay: str | None = None) -> list[Image.Image]:
+def record_gif(
+    sim: Simulation,
+    path: str | Path,
+    ticks: int,
+    every: int = 10,
+    scale: int = 4,
+    callback=None,
+    overlay: str | None = None,
+) -> list[Image.Image]:
     """Run the sim for `ticks`, grabbing a frame every `every` ticks. `callback(sim, tick)`
     can inject commands (used for scripted demos and tests). Stops early on an outcome."""
     frames = [frame(sim, scale, overlay=overlay)]

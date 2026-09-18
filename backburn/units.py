@@ -16,6 +16,7 @@ Transport: any unit with `passenger_slots` can PICKUP a foot unit (crew or
 civilian) and DROPOFF it elsewhere. A civilian dropped inside the scenario's safe
 zone counts as rescued.
 """
+
 from __future__ import annotations
 
 import math
@@ -34,14 +35,29 @@ if TYPE_CHECKING:
 
 # Order kinds
 MOVE, SUPPRESS, HOSE, CUT, DROP, REFILL, PICKUP, DROPOFF, HOLD = (
-    "MOVE", "SUPPRESS", "HOSE", "CUT", "DROP", "REFILL", "PICKUP", "DROPOFF", "HOLD")
+    "MOVE",
+    "SUPPRESS",
+    "HOSE",
+    "CUT",
+    "DROP",
+    "REFILL",
+    "PICKUP",
+    "DROPOFF",
+    "HOLD",
+)
 ORDER_KINDS = {MOVE, SUPPRESS, HOSE, CUT, DROP, REFILL, PICKUP, DROPOFF, HOLD}
 
 # Civilian / crew states beyond the movement ones
 FLEEING, SAFE, LOST, ABOARD = "FLEEING", "SAFE", "LOST", "ABOARD"
 
-_NO_CUT = {int(TerrainType.WATER), int(TerrainType.ROAD), int(TerrainType.STRUCTURE),
-           int(TerrainType.GRAVEL), int(TerrainType.SAND), int(TerrainType.FIREBREAK)}
+_NO_CUT = {
+    int(TerrainType.WATER),
+    int(TerrainType.ROAD),
+    int(TerrainType.STRUCTURE),
+    int(TerrainType.GRAVEL),
+    int(TerrainType.SAND),
+    int(TerrainType.FIREBREAK),
+}
 
 
 @dataclass
@@ -49,20 +65,30 @@ class Order:
     kind: str
     target: tuple[float, float] | None = None
     points: list[tuple[float, float]] = field(default_factory=list)  # CUT polyline / DROP segment
-    unit_id: int | None = None   # PICKUP target
-    auto: bool = False           # created by the unit itself (auto-refill), not the player
+    unit_id: int | None = None  # PICKUP target
+    auto: bool = False  # created by the unit itself (auto-refill), not the player
 
     def __repr__(self) -> str:
         return f"Order({self.kind}, {self.unit_id if self.kind == PICKUP else (self.target or self.points)})"
 
     def to_dict(self) -> dict:
-        return {"kind": self.kind, "target": list(self.target) if self.target else None,
-                "points": [list(p) for p in self.points], "unit_id": self.unit_id, "auto": self.auto}
+        return {
+            "kind": self.kind,
+            "target": list(self.target) if self.target else None,
+            "points": [list(p) for p in self.points],
+            "unit_id": self.unit_id,
+            "auto": self.auto,
+        }
 
     @classmethod
     def from_dict(cls, d: dict) -> "Order":
-        return cls(d["kind"], tuple(d["target"]) if d.get("target") else None,
-                   [tuple(p) for p in d.get("points", [])], d.get("unit_id"), bool(d.get("auto", False)))
+        return cls(
+            d["kind"],
+            tuple(d["target"]) if d.get("target") else None,
+            [tuple(p) for p in d.get("points", [])],
+            d.get("unit_id"),
+            bool(d.get("auto", False)),
+        )
 
 
 @dataclass
@@ -76,7 +102,7 @@ class Unit:
     current: Order | None = None
     path: list = field(default_factory=list)
     tank: float = 0.0
-    hose: list = field(default_factory=list)   # cells from unit to water source
+    hose: list = field(default_factory=list)  # cells from unit to water source
     hose_source: tuple[int, int] | None = None
     reconnect_timer: float = 0.0
     reload_timer: float = 0.0
@@ -85,8 +111,8 @@ class Unit:
     cut_progress: float = 0.0
     cut_index: int = 0
     drop_phase: int = 0
-    passengers: list = field(default_factory=list)   # uids aboard
-    in_vehicle: int | None = None                     # uid of carrier
+    passengers: list = field(default_factory=list)  # uids aboard
+    in_vehicle: int | None = None  # uid of carrier
     rescued: bool = False
     alive: bool = True
     flee_timer: float = 0.0
@@ -176,7 +202,8 @@ class Unit:
 
     def _plan_to(self, grid: FireGrid, target: tuple[float, float]) -> bool:
         tx, ty = int(round(target[0])), int(round(target[1]))
-        tx = min(max(tx, 0), grid.w - 1); ty = min(max(ty, 0), grid.h - 1)
+        tx = min(max(tx, 0), grid.w - 1)
+        ty = min(max(ty, 0), grid.h - 1)
         if self.is_air:
             self.path = [(tx, ty)]
             self.arrived = False
@@ -189,7 +216,7 @@ class Unit:
         if p is None:
             return False
         self.path = p
-        self.arrived = (len(p) == 0)
+        self.arrived = len(p) == 0
         return True
 
     def _advance(self, grid: FireGrid, dt: float) -> bool:
@@ -257,7 +284,8 @@ class Unit:
         # Ground units standing in a burning cell are overrun.
         cx, cy = self.cell
         if not self.is_air and grid.state[cy, cx] == BURNING:
-            self.orders.clear(); self.current = None
+            self.orders.clear()
+            self.current = None
             self._reset_order_state()
             self.hose = []
             self.say("overrun by fire, retreating")
@@ -273,8 +301,14 @@ class Unit:
                 return
         o = self.current
         handler = {
-            MOVE: self._do_move, SUPPRESS: self._do_suppress, HOSE: self._do_hose, CUT: self._do_cut,
-            DROP: self._do_drop, REFILL: self._do_refill, PICKUP: self._do_pickup, DROPOFF: self._do_dropoff,
+            MOVE: self._do_move,
+            SUPPRESS: self._do_suppress,
+            HOSE: self._do_hose,
+            CUT: self._do_cut,
+            DROP: self._do_drop,
+            REFILL: self._do_refill,
+            PICKUP: self._do_pickup,
+            DROPOFF: self._do_dropoff,
         }.get(o.kind)
         if handler is None:
             self.state = "WORKING"  # HOLD
@@ -298,12 +332,14 @@ class Unit:
     def _do_suppress(self, grid, o, dt, world) -> None:
         spec = self.spec
         if self.capacity > 0 and self.tank <= 0.0:
-            self._auto_refill(grid, o, world); return
+            self._auto_refill(grid, o, world)
+            return
         r = float(spec["spray_radius"])
         a = self._approach(grid, o.target, max(0.9, r * 0.75), dt)
         if a is None:
             self.say("can't reach suppress target")
-            self._finish(); return
+            self._finish()
+            return
         if a is False:
             return
         self.state = "WORKING"
@@ -323,10 +359,13 @@ class Unit:
                 self.state = "WORKING"
 
     def _auto_refill(self, grid, resume: Order, world) -> None:
-        src = world.nearest_water(grid, self.cell, self.move_class, reach=float(self.spec.get("refill_radius", 2.5)))
+        src = world.nearest_water(
+            grid, self.cell, self.move_class, reach=float(self.spec.get("refill_radius", 2.5))
+        )
         if src is None:
             self.say("tank empty, no water source reachable")
-            self._finish(); return
+            self._finish()
+            return
         self.say("tank empty, going to refill")
         self.current = Order(REFILL, target=src, auto=True)
         self.orders.appendleft(Order(resume.kind, resume.target, list(resume.points)))
@@ -340,7 +379,8 @@ class Unit:
         a = self._approach(grid, o.target, reach, dt)
         if a is None:
             self.say("can't reach water")
-            self._finish(); return
+            self._finish()
+            return
         if a is False:
             return
         if at_base:
@@ -362,7 +402,8 @@ class Unit:
         a = self._approach(grid, o.target, 0.9, dt)
         if a is None:
             self.say("can't reach hose position")
-            self._finish(); return
+            self._finish()
+            return
         if a is False:
             self.hose = []
             return
@@ -378,7 +419,8 @@ class Unit:
                     self.reconnect_timer = 10.0
                 return
             self.say(f"hose connected ({len(self.hose)} cells)")
-        hy = np.fromiter((c[1] for c in self.hose), int); hx = np.fromiter((c[0] for c in self.hose), int)
+        hy = np.fromiter((c[1] for c in self.hose), int)
+        hx = np.fromiter((c[0] for c in self.hose), int)
         if (grid.state[hy, hx] == BURNING).any():
             self.hose = []
             self.state = "HOSE_BURNED"
@@ -386,7 +428,8 @@ class Unit:
             self.say("HOSE BURNED — reconnecting")
             return
         self.state = "WORKING"
-        r = float(spec["spray_radius"]); rate = float(spec["spray_water"])
+        r = float(spec["spray_radius"])
+        rate = float(spec["spray_water"])
         ys, xs = grid._disc(self.x, self.y, r)
         grid.water[ys, xs] = np.minimum(grid.water[ys, xs] + rate * dt, 1.5)
 
@@ -421,10 +464,12 @@ class Unit:
     def _do_cut(self, grid, o, dt, world) -> None:
         pts = o.points
         if not pts:
-            self._finish(); return
+            self._finish()
+            return
         if self.cut_index >= len(pts):
             self.say("line complete")
-            self._finish(); return
+            self._finish()
+            return
         tx, ty = pts[self.cut_index]
         d = math.hypot(tx - self.x, ty - self.y)
         if d < 0.5:
@@ -436,7 +481,8 @@ class Unit:
             a = self._approach(grid, (tx, ty), 0.5, dt)
             if a is None:
                 self.say("can't reach line start")
-                self._finish(); return
+                self._finish()
+                return
             if a is True:
                 self.cut_index = 1
                 self.path = []
@@ -458,7 +504,8 @@ class Unit:
             ncx, ncy = int(round(nx)), int(round(ny))
             if grid.state[ncy, ncx] == BURNING:
                 self.say("line blocked by fire")
-                self._finish(); return
+                self._finish()
+                return
             self.x, self.y = nx, ny
 
     def _cut_cell(self, grid, cx: int, cy: int) -> None:
@@ -477,10 +524,12 @@ class Unit:
     def _do_drop(self, grid, o, dt, world) -> None:
         spec = self.spec
         if len(o.points) < 2:
-            self._finish(); return
+            self._finish()
+            return
         p0, p1 = o.points[0], o.points[1]
         if self.tank <= 0.0:
-            self._auto_reload(grid, o, world); return
+            self._auto_reload(grid, o, world)
+            return
         if self.drop_phase == 0:
             if not self.path:
                 self.path = [(int(round(p0[0])), int(round(p0[1])))]
@@ -518,7 +567,8 @@ class Unit:
             src = world.nearest_water(grid, self.cell, MoveClass.AIR, reach=2.5)
             if src is None:
                 self.say("no water to refill from")
-                self._finish(); return
+                self._finish()
+                return
             self.say("going to refill")
             self.current = Order(REFILL, target=src, auto=True)
         if resume is not None:
@@ -529,18 +579,23 @@ class Unit:
         target = world.by_id(o.unit_id)
         if target is None or not target.alive or target.in_vehicle is not None or not target.is_foot:
             self.say("nothing to pick up")
-            self._finish(); return
+            self._finish()
+            return
         if len(self.passengers) >= self.passenger_slots:
             self.say("no room aboard")
-            self._finish(); return
+            self._finish()
+            return
         a = self._approach(grid, (target.x, target.y), 1.2, dt)
         if a is None:
             self.say("can't reach pickup")
-            self._finish(); return
+            self._finish()
+            return
         if a is False:
             return
         target.in_vehicle = self.uid
-        target.orders.clear(); target.current = None; target._reset_order_state()
+        target.orders.clear()
+        target.current = None
+        target._reset_order_state()
         target.hose = []
         target.state = ABOARD
         self.passengers.append(target.uid)
@@ -549,11 +604,13 @@ class Unit:
 
     def _do_dropoff(self, grid, o, dt, world) -> None:
         if not self.passengers:
-            self._finish(); return
+            self._finish()
+            return
         a = self._approach(grid, o.target, 1.2, dt)
         if a is None:
             self.say("can't reach drop-off")
-            self._finish(); return
+            self._finish()
+            return
         if a is False:
             return
         for pid in list(self.passengers):
@@ -585,8 +642,9 @@ class Unit:
             return None
         return float(xs[b].mean()), float(ys[b].mean())
 
-    def _safe_cell(self, grid, away_from: tuple[float, float] | None, clear: int = 4,
-                   max_r: int = 16) -> tuple[int, int] | None:
+    def _safe_cell(
+        self, grid, away_from: tuple[float, float] | None, clear: int = 4, max_r: int = 16
+    ) -> tuple[int, int] | None:
         """Nearest passable cell with no fire within `clear`, preferring away from `away_from`."""
         cost = TERRAIN.cost_for(self.move_class)
         cx, cy = self.cell
@@ -595,7 +653,9 @@ class Unit:
             for dy in range(-r, r + 1, 2):
                 for dx in range(-r, r + 1, 2):
                     x, y = cx + dx, cy + dy
-                    if not (0 <= x < grid.w and 0 <= y < grid.h) or not math.isfinite(cost[grid.terrain[y, x]]):
+                    if not (0 <= x < grid.w and 0 <= y < grid.h) or not math.isfinite(
+                        cost[grid.terrain[y, x]]
+                    ):
                         continue
                     ys, xs = grid._disc(x, y, clear)
                     if (grid.state[ys, xs] == BURNING).any():
@@ -649,16 +709,29 @@ class Unit:
 
     def to_dict(self) -> dict:
         return {
-            "utype": self.utype, "x": self.x, "y": self.y, "uid": self.uid, "state": self.state,
+            "utype": self.utype,
+            "x": self.x,
+            "y": self.y,
+            "uid": self.uid,
+            "state": self.state,
             "orders": [o.to_dict() for o in self.orders],
             "current": self.current.to_dict() if self.current else None,
-            "path": [list(p) for p in self.path], "tank": self.tank,
-            "hose": [list(c) for c in self.hose], "hose_source": list(self.hose_source) if self.hose_source else None,
-            "reconnect_timer": self.reconnect_timer, "reload_timer": self.reload_timer,
-            "replan_cooldown": self.replan_cooldown, "arrived": self.arrived,
-            "cut_progress": self.cut_progress, "cut_index": self.cut_index, "drop_phase": self.drop_phase,
-            "passengers": list(self.passengers), "in_vehicle": self.in_vehicle, "rescued": self.rescued,
-            "alive": self.alive, "flee_timer": self.flee_timer,
+            "path": [list(p) for p in self.path],
+            "tank": self.tank,
+            "hose": [list(c) for c in self.hose],
+            "hose_source": list(self.hose_source) if self.hose_source else None,
+            "reconnect_timer": self.reconnect_timer,
+            "reload_timer": self.reload_timer,
+            "replan_cooldown": self.replan_cooldown,
+            "arrived": self.arrived,
+            "cut_progress": self.cut_progress,
+            "cut_index": self.cut_index,
+            "drop_phase": self.drop_phase,
+            "passengers": list(self.passengers),
+            "in_vehicle": self.in_vehicle,
+            "rescued": self.rescued,
+            "alive": self.alive,
+            "flee_timer": self.flee_timer,
         }
 
     @classmethod
@@ -671,8 +744,20 @@ class Unit:
         u.tank = float(d["tank"])
         u.hose = [tuple(c) for c in d["hose"]]
         u.hose_source = tuple(d["hose_source"]) if d["hose_source"] else None
-        for k in ("reconnect_timer", "reload_timer", "replan_cooldown", "arrived", "cut_progress", "cut_index",
-                  "drop_phase", "passengers", "in_vehicle", "rescued", "alive", "flee_timer"):
+        for k in (
+            "reconnect_timer",
+            "reload_timer",
+            "replan_cooldown",
+            "arrived",
+            "cut_progress",
+            "cut_index",
+            "drop_phase",
+            "passengers",
+            "in_vehicle",
+            "rescued",
+            "alive",
+            "flee_timer",
+        ):
             setattr(u, k, d[k])
         return u
 
@@ -688,8 +773,12 @@ class Arrival:
 class World:
     """Container for units plus shared lookups (water sources, airbase, staging, safe zone)."""
 
-    def __init__(self, airbase: tuple[float, float] = (0.0, 0.0), staging: tuple[float, float] | None = None,
-                 safe_zone: tuple[float, float, float] | None = None):
+    def __init__(
+        self,
+        airbase: tuple[float, float] = (0.0, 0.0),
+        staging: tuple[float, float] | None = None,
+        safe_zone: tuple[float, float, float] | None = None,
+    ):
         self.units: list[Unit] = []
         self.airbase = tuple(airbase)
         self.staging = tuple(staging) if staging else tuple(airbase)
@@ -736,11 +825,14 @@ class World:
         return arrived
 
     @staticmethod
-    def snap_passable(grid: "FireGrid", mc: MoveClass, x: float, y: float, max_r: int = 12) -> tuple[float, float]:
+    def snap_passable(
+        grid: "FireGrid", mc: MoveClass, x: float, y: float, max_r: int = 12
+    ) -> tuple[float, float]:
         """Nearest cell this movement class can stand on (scenario placement is forgiving)."""
         cost = TERRAIN.cost_for(mc)
         cx, cy = int(round(x)), int(round(y))
-        cx = min(max(cx, 0), grid.w - 1); cy = min(max(cy, 0), grid.h - 1)
+        cx = min(max(cx, 0), grid.w - 1)
+        cy = min(max(cy, 0), grid.h - 1)
         if math.isfinite(cost[grid.terrain[cy, cx]]):
             return float(cx), float(cy)
         best, bd = None, 1e9
@@ -774,8 +866,9 @@ class World:
     def civilians(self) -> list[Unit]:
         return [u for u in self.units if u.is_civilian]
 
-    def nearest_water(self, grid: "FireGrid", frm: tuple[int, int], mc: MoveClass,
-                      reach: float = 2.5) -> tuple[int, int] | None:
+    def nearest_water(
+        self, grid: "FireGrid", frm: tuple[int, int], mc: MoveClass, reach: float = 2.5
+    ) -> tuple[int, int] | None:
         """Nearest cell from which this unit can touch a water source."""
         ws = np.argwhere(TERRAIN.is_water_source[grid.terrain])
         if len(ws) == 0:
@@ -790,7 +883,8 @@ class World:
         for idx in order[:40]:
             wy, wx = int(ws[idx][0]), int(ws[idx][1])
             r = int(math.ceil(reach))
-            best = None; bd = 1e9
+            best = None
+            bd = 1e9
             for yy in range(max(0, wy - r), min(grid.h, wy + r + 1)):
                 for xx in range(max(0, wx - r), min(grid.w, wx + r + 1)):
                     if math.isfinite(cost[yy, xx]) and math.hypot(xx - wx, yy - wy) <= reach:
@@ -814,14 +908,20 @@ class World:
     # ---- (de)serialisation -------------------------------------------------------------
 
     def to_dict(self) -> dict:
-        return {"airbase": list(self.airbase), "staging": list(self.staging),
-                "safe_zone": list(self.safe_zone) if self.safe_zone else None,
-                "next_uid": self._next_uid, "units": [u.to_dict() for u in self.units],
-                "pending": [a.__dict__ for a in self.pending]}
+        return {
+            "airbase": list(self.airbase),
+            "staging": list(self.staging),
+            "safe_zone": list(self.safe_zone) if self.safe_zone else None,
+            "next_uid": self._next_uid,
+            "units": [u.to_dict() for u in self.units],
+            "pending": [a.__dict__ for a in self.pending],
+        }
 
     @classmethod
     def from_dict(cls, d: dict) -> "World":
-        w = cls(tuple(d["airbase"]), tuple(d["staging"]), tuple(d["safe_zone"]) if d.get("safe_zone") else None)
+        w = cls(
+            tuple(d["airbase"]), tuple(d["staging"]), tuple(d["safe_zone"]) if d.get("safe_zone") else None
+        )
         w._next_uid = int(d["next_uid"])
         w.units = [Unit.from_dict(u) for u in d["units"]]
         w.pending = [Arrival(**a) for a in d["pending"]]

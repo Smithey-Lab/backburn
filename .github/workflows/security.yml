@@ -1,0 +1,23 @@
+name: Security
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  schedule:
+    - cron: '30 6 * * 1'
+permissions:
+  contents: read
+jobs:
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: github/codeql-action/init@ed1a0fa18ac745d017ca370dd4ef08bba3b4f504
+        with:
+          languages: python
+      - uses: github/codeql-action/analyze@ed1a0fa18ac745d017ca370dd4ef08bba3b4f504

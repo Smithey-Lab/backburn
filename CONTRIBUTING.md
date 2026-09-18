@@ -1,12 +1,10 @@
 # Contributing
 
-This is a personal clean-room project. If you're contributing (human or agent):
+Use a feature or fix branch and open a pull request against develop. Release changes go
+from develop to main. Run pytest, ruff check, ruff format --check and the generated-table
+check before opening a PR. See docs/REPOSITORY.md for release and security practices.
 
-- Read `DECISIONS.md` first. Change a decision there before changing code that depends on it.
-- Numbers go in `backburn/data/*.json`, never in code. Run `python tools/gen_tables.py` after.
-- Every behaviour gets a test in `tests/` that asserts a relationship, not a constant.
-- Keep the sim (`fire.py`, `units.py`, `sim.py`, `scenario.py`, `pathfinding.py`) free of
-  rendering imports.
-- Determinism rules in `docs/DEVELOPMENT.md` are hard rules.
-- No original FireJumpers code, art, audio, or extracted assets. Reference screenshots are
-  for comparison only. Label uncertain behaviour as documented / inferred / new.
+Keep simulation changes independent of rendering. Add behavioral tests for mechanics,
+save compatibility and updater safety. Use original assets with clear provenance.
+Do not include local saves, private research documents, tokens or large build artifacts.
+The project currently retains all rights reserved; discuss external contributions first.

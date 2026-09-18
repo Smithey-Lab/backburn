@@ -7,6 +7,7 @@ cells are treated as impassable for non-air units.
 
 Deliberately simple. Flow fields come later if unit counts justify them (DECISIONS.md).
 """
+
 from __future__ import annotations
 
 import heapq
@@ -16,20 +17,30 @@ import numpy as np
 
 from .fire import BURNING, SMOLDER
 
-_NB = [(1, 0, 1.0), (-1, 0, 1.0), (0, 1, 1.0), (0, -1, 1.0),
-       (1, 1, math.sqrt(2)), (1, -1, math.sqrt(2)), (-1, 1, math.sqrt(2)), (-1, -1, math.sqrt(2))]
+_NB = [
+    (1, 0, 1.0),
+    (-1, 0, 1.0),
+    (0, 1, 1.0),
+    (0, -1, 1.0),
+    (1, 1, math.sqrt(2)),
+    (1, -1, math.sqrt(2)),
+    (-1, 1, math.sqrt(2)),
+    (-1, -1, math.sqrt(2)),
+]
 
 
-def build_cost(terrain: np.ndarray, state: np.ndarray, cost_row: np.ndarray,
-               avoid_fire: bool = True) -> np.ndarray:
+def build_cost(
+    terrain: np.ndarray, state: np.ndarray, cost_row: np.ndarray, avoid_fire: bool = True
+) -> np.ndarray:
     cost = cost_row[terrain].astype(np.float32)
     if avoid_fire:
         cost[(state == BURNING) | (state == SMOLDER)] = np.inf
     return cost
 
 
-def find_path(cost: np.ndarray, start: tuple[int, int], goal: tuple[int, int],
-              max_expand: int = 200_000) -> list[tuple[int, int]] | None:
+def find_path(
+    cost: np.ndarray, start: tuple[int, int], goal: tuple[int, int], max_expand: int = 200_000
+) -> list[tuple[int, int]] | None:
     """Return list of (x, y) from start (exclusive) to goal (inclusive), or None.
 
     If the goal itself is impassable, the nearest reachable cell to it is used.

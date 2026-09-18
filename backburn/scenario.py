@@ -9,6 +9,7 @@ for the machine-readable schema. Two terrain modes round-trip through the same f
 Letter codes: W water  G grass  S shrub  F forest  D dense forest
               R road   V gravel B building/structure  X firebreak  A sand
 """
+
 from __future__ import annotations
 
 import json
@@ -17,27 +18,38 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import TerrainType as T, UNITS
+from .config import UNITS
+from .config import TerrainType as T
 
-LETTER_TO_T = {"W": T.WATER, "G": T.GRASS, "S": T.SHRUB, "F": T.FOREST, "D": T.DENSE_FOREST,
-               "R": T.ROAD, "V": T.GRAVEL, "B": T.STRUCTURE, "X": T.FIREBREAK, "A": T.SAND}
+LETTER_TO_T = {
+    "W": T.WATER,
+    "G": T.GRASS,
+    "S": T.SHRUB,
+    "F": T.FOREST,
+    "D": T.DENSE_FOREST,
+    "R": T.ROAD,
+    "V": T.GRAVEL,
+    "B": T.STRUCTURE,
+    "X": T.FIREBREAK,
+    "A": T.SAND,
+}
 T_TO_LETTER = {int(v): k for k, v in LETTER_TO_T.items()}
 
 DEFAULT_OBJECTIVES = {
-    "max_structures_lost": None,   # int → lose when exceeded
-    "max_civilians_lost": None,    # int → lose when exceeded
-    "max_area_burned_pct": None,   # float → lose when exceeded
-    "rescue_all_civilians": False, # bool → required to win on timeout
-    "win_on_contained": True,      # bool → win the moment the fire is out
+    "max_structures_lost": None,  # int → lose when exceeded
+    "max_civilians_lost": None,  # int → lose when exceeded
+    "max_area_burned_pct": None,  # float → lose when exceeded
+    "rescue_all_civilians": False,  # bool → required to win on timeout
+    "win_on_contained": True,  # bool → win the moment the fire is out
 }
 DEFAULT_SCORING = {
     "structure_saved": 500,
     "civilian_rescued": 1000,
     "civilian_lost": -1500,
-    "acre_saved": 1.0,           # per unburned fuel cell
-    "budget_remaining": 0.1,     # per currency unit left
+    "acre_saved": 1.0,  # per unburned fuel cell
+    "budget_remaining": 0.1,  # per currency unit left
     "contain_bonus": 2000,
-    "time_bonus_per_second": 1.0, # × seconds remaining when contained
+    "time_bonus_per_second": 1.0,  # × seconds remaining when contained
 }
 EVENT_KINDS = {"wind", "ignite", "message", "spawn", "budget"}
 
@@ -58,18 +70,20 @@ class Scenario:
     terrain_mode: str = "generate"
     terrain_params: dict = field(default_factory=dict)
     terrain_grid: np.ndarray | None = None
-    elevation: dict | None = None            # None | {"mode": "generate", "relief": m} | {"mode": "grid", "rows": [[...]]}
+    elevation: dict | None = (
+        None  # None | {"mode": "generate", "relief": m} | {"mode": "grid", "rows": [[...]]}
+    )
     ignitions: list = field(default_factory=list)
     units: list = field(default_factory=list)
     airbase: tuple = (2.0, 2.0)
     staging: tuple | None = None
-    safe_zone: tuple | None = None           # (x, y, radius)
-    budget: float | None = None              # None = unlimited (Sandbox mode)
-    available_units: list | None = None      # None = every non-civilian type can be purchased
+    safe_zone: tuple | None = None  # (x, y, radius)
+    budget: float | None = None  # None = unlimited (Sandbox mode)
+    available_units: list | None = None  # None = every non-civilian type can be purchased
     duration: float = 1800.0
     objectives: dict = field(default_factory=lambda: dict(DEFAULT_OBJECTIVES))
     scoring: dict = field(default_factory=lambda: dict(DEFAULT_SCORING))
-    events: list = field(default_factory=list)   # [{"at": seconds, "<kind>": ...}]
+    events: list = field(default_factory=list)  # [{"at": seconds, "<kind>": ...}]
     briefing: str = ""
     notes: str = ""
 
@@ -87,23 +101,37 @@ class Scenario:
             return None
         if e.get("mode") == "grid":
             return np.asarray(e["rows"], dtype=np.float32)
-        return generate_elevation(self.width, self.height, int(e.get("seed", self.seed + 1000)),
-                                  relief=float(e.get("relief", 60.0)), octaves=int(e.get("octaves", 3)))
+        return generate_elevation(
+            self.width,
+            self.height,
+            int(e.get("seed", self.seed + 1000)),
+            relief=float(e.get("relief", 60.0)),
+            octaves=int(e.get("octaves", 3)),
+        )
 
     # ---- (de)serialisation ------------------------------------------------
 
     def to_dict(self) -> dict:
         d = {
-            "name": self.name, "briefing": self.briefing, "notes": self.notes,
-            "seed": self.seed, "width": self.width, "height": self.height,
+            "name": self.name,
+            "briefing": self.briefing,
+            "notes": self.notes,
+            "seed": self.seed,
+            "width": self.width,
+            "height": self.height,
             "moisture": self.moisture,
             "wind": {"speed": self.wind_speed, "bearing": self.wind_bearing},
             "airbase": list(self.airbase),
             "staging": list(self.staging) if self.staging else None,
             "safe_zone": list(self.safe_zone) if self.safe_zone else None,
-            "budget": self.budget, "available_units": self.available_units, "duration": self.duration,
-            "objectives": self.objectives, "scoring": self.scoring, "events": self.events,
-            "ignitions": self.ignitions, "units": self.units,
+            "budget": self.budget,
+            "available_units": self.available_units,
+            "duration": self.duration,
+            "objectives": self.objectives,
+            "scoring": self.scoring,
+            "events": self.events,
+            "ignitions": self.ignitions,
+            "units": self.units,
         }
         if self.terrain_mode == "grid" and self.terrain_grid is not None:
             rows = ["".join(T_TO_LETTER[int(v)] for v in row) for row in self.terrain_grid]
@@ -119,15 +147,22 @@ class Scenario:
         validate(d)
         wind = d.get("wind", {})
         s = cls(
-            name=d.get("name", "Untitled"), briefing=d.get("briefing", ""), notes=d.get("notes", ""),
-            seed=int(d.get("seed", 1)), width=int(d.get("width", 128)), height=int(d.get("height", 128)),
+            name=d.get("name", "Untitled"),
+            briefing=d.get("briefing", ""),
+            notes=d.get("notes", ""),
+            seed=int(d.get("seed", 1)),
+            width=int(d.get("width", 128)),
+            height=int(d.get("height", 128)),
             moisture=float(d.get("moisture", 0.15)),
-            wind_speed=float(wind.get("speed", 4.0)), wind_bearing=float(wind.get("bearing", 90.0)),
-            ignitions=list(d.get("ignitions", [])), units=list(d.get("units", [])),
+            wind_speed=float(wind.get("speed", 4.0)),
+            wind_bearing=float(wind.get("bearing", 90.0)),
+            ignitions=list(d.get("ignitions", [])),
+            units=list(d.get("units", [])),
             airbase=tuple(d.get("airbase", [2.0, 2.0])),
             staging=tuple(d["staging"]) if d.get("staging") else None,
             safe_zone=tuple(d["safe_zone"]) if d.get("safe_zone") else None,
-            budget=d.get("budget"), available_units=d.get("available_units"),
+            budget=d.get("budget"),
+            available_units=d.get("available_units"),
             duration=float(d.get("duration", 1800.0)),
             objectives={**DEFAULT_OBJECTIVES, **d.get("objectives", {})},
             scoring={**DEFAULT_SCORING, **d.get("scoring", {})},
@@ -151,6 +186,7 @@ class Scenario:
 
 def validate(d: dict) -> None:
     """Raise ScenarioError with a precise message for anything that would break the sim."""
+
     def num(key, lo=None, hi=None, parent=d, label=None):
         label = label or key
         if key not in parent or parent[key] is None:
@@ -165,12 +201,17 @@ def validate(d: dict) -> None:
 
     if not isinstance(d, dict):
         raise ScenarioError("scenario must be a JSON object")
-    num("width", 8, 512); num("height", 8, 512); num("moisture", 0, 1); num("duration", 1)
-    num("seed"); num("budget", 0)
+    num("width", 8, 512)
+    num("height", 8, 512)
+    num("moisture", 0, 1)
+    num("duration", 1)
+    num("seed")
+    num("budget", 0)
     wind = d.get("wind", {})
     if not isinstance(wind, dict):
         raise ScenarioError("wind must be an object {speed, bearing}")
-    num("speed", 0, 40, wind, "wind.speed"); num("bearing", parent=wind, label="wind.bearing")
+    num("speed", 0, 40, wind, "wind.speed")
+    num("bearing", parent=wind, label="wind.bearing")
 
     t = d.get("terrain", {})
     mode = t.get("mode", "generate")
@@ -186,8 +227,9 @@ def validate(d: dict) -> None:
                 raise ScenarioError(f"terrain.rows[{y}] has length {len(r)}, expected {w}")
             bad = set(r) - set(LETTER_TO_T)
             if bad:
-                raise ScenarioError(f"terrain.rows[{y}] has unknown letters {sorted(bad)}; "
-                                    f"valid: {''.join(LETTER_TO_T)}")
+                raise ScenarioError(
+                    f"terrain.rows[{y}] has unknown letters {sorted(bad)}; valid: {''.join(LETTER_TO_T)}"
+                )
         width, height = w, len(rows)
     else:
         width, height = int(d.get("width", 128)), int(d.get("height", 128))
@@ -215,7 +257,9 @@ def validate(d: dict) -> None:
 
     for i, u in enumerate(d.get("units", [])):
         if not isinstance(u, dict) or u.get("type") not in UNITS:
-            raise ScenarioError(f"units[{i}].type must be one of {sorted(UNITS)}, got {u.get('type') if isinstance(u, dict) else u!r}")
+            raise ScenarioError(
+                f"units[{i}].type must be one of {sorted(UNITS)}, got {u.get('type') if isinstance(u, dict) else u!r}"
+            )
         if "x" not in u or "y" not in u:
             raise ScenarioError(f"units[{i}] needs x and y")
         point([u["x"], u["y"]], f"units[{i}]")
@@ -238,7 +282,9 @@ def validate(d: dict) -> None:
     obj = d.get("objectives", {})
     for k in obj:
         if k not in DEFAULT_OBJECTIVES:
-            raise ScenarioError(f"objectives.{k} is not a known objective; valid: {sorted(DEFAULT_OBJECTIVES)}")
+            raise ScenarioError(
+                f"objectives.{k} is not a known objective; valid: {sorted(DEFAULT_OBJECTIVES)}"
+            )
     for k in d.get("scoring", {}):
         if k not in DEFAULT_SCORING:
             raise ScenarioError(f"scoring.{k} is not a known weight; valid: {sorted(DEFAULT_SCORING)}")
@@ -270,20 +316,28 @@ def save_scenario(s: Scenario, path: str | Path) -> None:
 
 # ---- procedural map ---------------------------------------------------------
 
+
 def _value_noise(rng: np.random.Generator, h: int, w: int, octaves: int = 4, base: int = 8) -> np.ndarray:
     out = np.zeros((h, w), np.float32)
     amp = 1.0
     total = 0.0
     for o in range(octaves):
-        gh, gw = base * (2 ** o) + 1, base * (2 ** o) + 1
+        gh, gw = base * (2**o) + 1, base * (2**o) + 1
         g = rng.random((gh, gw), dtype=np.float32)
         ys = np.linspace(0, gh - 1, h)
         xs = np.linspace(0, gw - 1, w)
-        y0 = np.floor(ys).astype(int); x0 = np.floor(xs).astype(int)
-        y1 = np.minimum(y0 + 1, gh - 1); x1 = np.minimum(x0 + 1, gw - 1)
-        fy = (ys - y0)[:, None]; fx = (xs - x0)[None, :]
-        fy = fy * fy * (3 - 2 * fy); fx = fx * fx * (3 - 2 * fx)
-        a = g[y0][:, x0]; b = g[y0][:, x1]; c = g[y1][:, x0]; d = g[y1][:, x1]
+        y0 = np.floor(ys).astype(int)
+        x0 = np.floor(xs).astype(int)
+        y1 = np.minimum(y0 + 1, gh - 1)
+        x1 = np.minimum(x0 + 1, gw - 1)
+        fy = (ys - y0)[:, None]
+        fx = (xs - x0)[None, :]
+        fy = fy * fy * (3 - 2 * fy)
+        fx = fx * fx * (3 - 2 * fx)
+        a = g[y0][:, x0]
+        b = g[y0][:, x1]
+        c = g[y1][:, x0]
+        d = g[y1][:, x1]
         layer = (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy
         out += layer * amp
         total += amp
@@ -299,9 +353,19 @@ def generate_elevation(w: int, h: int, seed: int, relief: float = 60.0, octaves:
     return (n * relief).astype(np.float32)
 
 
-def generate_terrain(w: int, h: int, seed: int, water_level: float = 0.28, forest_level: float = 0.52,
-                     dense_level: float = 0.68, shrub_level: float = 0.45, roads: int = 2,
-                     structures: int = 14, lake: bool = True, **_: object) -> np.ndarray:
+def generate_terrain(
+    w: int,
+    h: int,
+    seed: int,
+    water_level: float = 0.28,
+    forest_level: float = 0.52,
+    dense_level: float = 0.68,
+    shrub_level: float = 0.45,
+    roads: int = 2,
+    structures: int = 14,
+    lake: bool = True,
+    **_: object,
+) -> np.ndarray:
     """Seeded procedural terrain. Every parameter is a design dial."""
     rng = np.random.default_rng(seed)
     n = _value_noise(rng, h, w, octaves=4, base=6)
@@ -320,11 +384,13 @@ def generate_terrain(w: int, h: int, seed: int, water_level: float = 0.28, fores
 
     for _ in range(roads):
         if rng.random() < 0.5:
-            y = int(rng.integers(h // 5, 4 * h // 5)); x_bend = int(rng.integers(w // 4, 3 * w // 4))
+            y = int(rng.integers(h // 5, 4 * h // 5))
+            x_bend = int(rng.integers(w // 4, 3 * w // 4))
             y2 = int(np.clip(y + rng.integers(-h // 4, h // 4), 1, h - 2))
             _draw_road(t, [(0, y), (x_bend, y), (x_bend, y2), (w - 1, y2)])
         else:
-            x = int(rng.integers(w // 5, 4 * w // 5)); y_bend = int(rng.integers(h // 4, 3 * h // 4))
+            x = int(rng.integers(w // 5, 4 * w // 5))
+            y_bend = int(rng.integers(h // 4, 3 * h // 4))
             x2 = int(np.clip(x + rng.integers(-w // 4, w // 4), 1, w - 2))
             _draw_road(t, [(x, 0), (x, y_bend), (x2, y_bend), (x2, h - 1)])
 
@@ -336,9 +402,13 @@ def generate_terrain(w: int, h: int, seed: int, water_level: float = 0.28, fores
         ry, rx = road_cells[rng.integers(len(road_cells))]
         ox, oy = int(rng.integers(-4, 5)), int(rng.integers(-4, 5))
         x, y = int(rx + ox), int(ry + oy)
-        if 1 <= x < w - 2 and 1 <= y < h - 2 and t[y, x] not in (int(T.WATER), int(T.ROAD), int(T.STRUCTURE), int(T.SAND)):
+        if (
+            1 <= x < w - 2
+            and 1 <= y < h - 2
+            and t[y, x] not in (int(T.WATER), int(T.ROAD), int(T.STRUCTURE), int(T.SAND))
+        ):
             sw, sh = int(rng.integers(1, 3)), int(rng.integers(1, 3))
-            blk = t[y:y + sh, x:x + sw]
+            blk = t[y : y + sh, x : x + sw]
             if not np.isin(blk, [int(T.WATER), int(T.ROAD)]).any():
                 blk[:] = int(T.STRUCTURE)
                 placed += 1
@@ -347,8 +417,10 @@ def generate_terrain(w: int, h: int, seed: int, water_level: float = 0.28, fores
 
 def _dilate(m: np.ndarray) -> np.ndarray:
     out = m.copy()
-    out[1:, :] |= m[:-1, :]; out[:-1, :] |= m[1:, :]
-    out[:, 1:] |= m[:, :-1]; out[:, :-1] |= m[:, 1:]
+    out[1:, :] |= m[:-1, :]
+    out[:-1, :] |= m[1:, :]
+    out[:, 1:] |= m[:, :-1]
+    out[:, :-1] |= m[:, 1:]
     return out
 
 

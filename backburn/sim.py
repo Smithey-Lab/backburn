@@ -12,6 +12,7 @@ Two persistence formats:
 
 The renderer and UI only ever talk to this class.
 """
+
 from __future__ import annotations
 
 import io
@@ -27,8 +28,8 @@ from .fire import FireGrid
 from .scenario import Scenario
 from .units import ORDER_KINDS, Order, Unit, World
 
-TICK_DT = 1.0            # simulated seconds per tick
-TICKS_PER_SECOND = 10    # at 1× speed (DECISIONS.md)
+TICK_DT = 1.0  # simulated seconds per tick
+TICKS_PER_SECOND = 10  # at 1× speed (DECISIONS.md)
 
 RUNNING, CONTAINED, FAILED, TIMEOUT = "running", "contained", "failed", "timeout"
 REPLAY_FORMAT = "backburn-replay-1"
@@ -38,6 +39,7 @@ SAVE_FORMAT = "backburn-save-1"
 @dataclass
 class Command:
     """One player action, recorded for replay."""
+
     tick: int
     kind: str
     args: dict = field(default_factory=dict)
@@ -47,18 +49,20 @@ class Command:
 class Message:
     time: float
     text: str
-    kind: str = "unit"   # unit | system | objective | event
+    kind: str = "unit"  # unit | system | objective | event
 
 
 class Simulation:
     def __init__(self, scenario: Scenario):
         self.scenario = scenario
         terrain = scenario.build_terrain()
-        self.grid = FireGrid(terrain, seed=scenario.seed, base_moisture=scenario.moisture,
-                             elevation=scenario.build_elevation())
+        self.grid = FireGrid(
+            terrain, seed=scenario.seed, base_moisture=scenario.moisture, elevation=scenario.build_elevation()
+        )
         self.grid.set_wind(scenario.wind_speed, scenario.wind_bearing)
-        self.world = World(airbase=tuple(scenario.airbase), staging=scenario.staging,
-                           safe_zone=scenario.safe_zone)
+        self.world = World(
+            airbase=tuple(scenario.airbase), staging=scenario.staging, safe_zone=scenario.safe_zone
+        )
         self.tick = 0
         self.log: list[Command] = []
         self.messages: list[Message] = []
@@ -115,8 +119,11 @@ class Simulation:
             self._msg(f"{utype} is not available in this scenario", "system")
             return False
         if not self.can_afford(utype):
-            self._msg(f"Not enough budget for {UNITS[utype].get('label', utype)} "
-                      f"({UNITS[utype].get('cost', 0):.0f})", "system")
+            self._msg(
+                f"Not enough budget for {UNITS[utype].get('label', utype)} "
+                f"({UNITS[utype].get('cost', 0):.0f})",
+                "system",
+            )
             return False
         self._record("spawn", utype=utype, x=x, y=y)
         self._spawn(utype, x, y)
@@ -133,17 +140,27 @@ class Simulation:
         self._record("place", utype=utype, x=float(x), y=float(y))
         return self.world.add(utype, x, y, self.grid)
 
-    def cmd_order(self, uid: int, kind: str, target=None, points=None, unit_id: int | None = None,
-                  queue: bool = False) -> bool:
+    def cmd_order(
+        self, uid: int, kind: str, target=None, points=None, unit_id: int | None = None, queue: bool = False
+    ) -> bool:
         if kind not in ORDER_KINDS:
             raise ValueError(f"unknown order kind {kind!r}; valid: {sorted(ORDER_KINDS)}")
         u = self.world.by_id(uid)
         if u is None or u.is_civilian or not u.alive:
             return False
-        self._record("order", uid=int(uid), kind=kind, target=list(target) if target else None,
-                     points=[list(p) for p in (points or [])], unit_id=unit_id, queue=bool(queue))
-        u.give(Order(kind, tuple(target) if target else None, [tuple(p) for p in (points or [])], unit_id),
-               queue=queue)
+        self._record(
+            "order",
+            uid=int(uid),
+            kind=kind,
+            target=list(target) if target else None,
+            points=[list(p) for p in (points or [])],
+            unit_id=unit_id,
+            queue=bool(queue),
+        )
+        u.give(
+            Order(kind, tuple(target) if target else None, [tuple(p) for p in (points or [])], unit_id),
+            queue=queue,
+        )
         return True
 
     def cmd_paint(self, x: int, y: int, ttype: int, radius: int = 0) -> None:
@@ -192,9 +209,13 @@ class Simulation:
             self._events_done.add(i)
             if "wind" in ev:
                 w = ev["wind"]
-                self.grid.set_wind(float(w.get("speed", self.grid.wind_speed)),
-                                   float(w.get("bearing", self.grid.wind_bearing)))
-                self._msg(f"Wind now {self.grid.wind_speed:.0f} m/s toward {self.grid.wind_bearing:.0f}°", "event")
+                self.grid.set_wind(
+                    float(w.get("speed", self.grid.wind_speed)),
+                    float(w.get("bearing", self.grid.wind_bearing)),
+                )
+                self._msg(
+                    f"Wind now {self.grid.wind_speed:.0f} m/s toward {self.grid.wind_bearing:.0f}°", "event"
+                )
             if "ignite" in ev:
                 ig = ev["ignite"]
                 if self.grid.ignite(int(ig["x"]), int(ig["y"]), int(ig.get("radius", 0))):
@@ -206,7 +227,10 @@ class Simulation:
                 self._msg(f"Reinforcement: {UNITS[r['type']].get('label', r['type'])} dispatched", "event")
             if "budget" in ev and self.budget is not None:
                 self.budget += float(ev["budget"])
-                self._msg(f"Budget {'increased' if ev['budget'] >= 0 else 'cut'} by {abs(float(ev['budget'])):.0f}", "event")
+                self._msg(
+                    f"Budget {'increased' if ev['budget'] >= 0 else 'cut'} by {abs(float(ev['budget'])):.0f}",
+                    "event",
+                )
             if "message" in ev:
                 self._msg(str(ev["message"]), "event")
 
@@ -219,24 +243,50 @@ class Simulation:
         if lost > self._structures_lost_seen:
             n = lost - self._structures_lost_seen
             self._structures_lost_seen = lost
-            self.messages.append(Message(self.grid.time,
-                                         f"{n} building{'s' if n > 1 else ''} burning ({lost} lost total)",
-                                         "objective"))
+            self.messages.append(
+                Message(
+                    self.grid.time,
+                    f"{n} building{'s' if n > 1 else ''} burning ({lost} lost total)",
+                    "objective",
+                )
+            )
 
     def _check_outcome(self) -> None:
         obj = self.scenario.objectives
         s = self.grid.stats()
         civ = self.civilian_counts()
         if obj.get("max_structures_lost") is not None and s.structures_lost > int(obj["max_structures_lost"]):
-            self._end(FAILED, f"Too many structures lost ({s.structures_lost} > {obj['max_structures_lost']})")
+            self._end(
+                FAILED, f"Too many structures lost ({s.structures_lost} > {obj['max_structures_lost']})"
+            )
             return
         if obj.get("max_civilians_lost") is not None and civ["lost"] > int(obj["max_civilians_lost"]):
             self._end(FAILED, f"Too many civilians lost ({civ['lost']})")
             return
-        if obj.get("max_area_burned_pct") is not None and 100 * s.area_burned_frac > float(obj["max_area_burned_pct"]):
+        if obj.get("max_area_burned_pct") is not None and 100 * s.area_burned_frac > float(
+            obj["max_area_burned_pct"]
+        ):
             self._end(FAILED, f"Burned area exceeded the limit ({100 * s.area_burned_frac:.0f}%)")
             return
-        if obj.get("win_on_contained", True) and self._fire_started and self.tick > 1 and self.grid.is_out():
+        if (
+            obj.get("rescue_all_civilians")
+            and not obj.get("win_on_contained", True)
+            and civ["total"] > 0
+            and civ["rescued"] == civ["total"]
+        ):
+            self.contained_at = self.grid.time
+            self._end(CONTAINED, "All hikers safely evacuated")
+            return
+        pending_fire = any(
+            i not in self._events_done and "ignite" in ev for i, ev in enumerate(self.scenario.events)
+        )
+        if (
+            obj.get("win_on_contained", True)
+            and not pending_fire
+            and self._fire_started
+            and self.tick > 1
+            and self.grid.is_out()
+        ):
             need_rescue = obj.get("rescue_all_civilians") and civ["total"] > 0
             if not need_rescue or civ["rescued"] + civ["lost"] == civ["total"]:
                 self.contained_at = self.grid.time
@@ -257,9 +307,12 @@ class Simulation:
 
     def civilian_counts(self) -> dict[str, int]:
         cs = self.world.civilians()
-        return {"total": len(cs), "rescued": sum(c.rescued for c in cs),
-                "lost": sum((not c.alive) for c in cs),
-                "aboard": sum((c.in_vehicle is not None) for c in cs)}
+        return {
+            "total": len(cs),
+            "rescued": sum(c.rescued for c in cs),
+            "lost": sum((not c.alive) for c in cs),
+            "aboard": sum((c.in_vehicle is not None) for c in cs),
+        }
 
     def score(self) -> dict[str, float]:
         """Score breakdown using the scenario's weights (docs/SCORING.md)."""
@@ -276,8 +329,11 @@ class Simulation:
             "area_saved": saved_cells * float(w["acre_saved"]),
             "budget_remaining": remaining * float(w["budget_remaining"]),
             "contain_bonus": float(w["contain_bonus"]) if self.outcome == CONTAINED else 0.0,
-            "time_bonus": (max(0.0, self.scenario.duration - self.contained_at) * float(w["time_bonus_per_second"])
-                           if self.contained_at is not None else 0.0),
+            "time_bonus": (
+                max(0.0, self.scenario.duration - self.contained_at) * float(w["time_bonus_per_second"])
+                if self.contained_at is not None
+                else 0.0
+            ),
         }
         parts = {k: round(v, 1) for k, v in parts.items()}
         parts["total"] = round(sum(parts.values()), 1)
@@ -287,15 +343,23 @@ class Simulation:
         s = self.grid.stats()
         civ = self.civilian_counts()
         return {
-            "time": self.grid.time, "tick": self.tick, "outcome": self.outcome,
-            "burning": s.burning, "smoldering": s.smoldering, "burned_cells": s.burned_cells,
+            "time": self.grid.time,
+            "tick": self.tick,
+            "outcome": self.outcome,
+            "burning": s.burning,
+            "smoldering": s.smoldering,
+            "burned_cells": s.burned_cells,
             "area_burned_pct": round(100 * s.area_burned_frac, 2),
-            "structures_total": s.structures_total, "structures_lost": s.structures_lost,
-            "civilians": civ, "spot_fires": s.spot_fires, "embers_in_air": s.embers_in_air,
+            "structures_total": s.structures_total,
+            "structures_lost": s.structures_lost,
+            "civilians": civ,
+            "spot_fires": s.spot_fires,
+            "embers_in_air": s.embers_in_air,
             "wind": (self.grid.wind_speed, self.grid.wind_bearing),
             "units": len([u for u in self.world.units if not u.is_civilian]),
             "pending": len(self.world.pending),
-            "budget": self.budget, "spent": self.spent,
+            "budget": self.budget,
+            "spent": self.spent,
         }
 
     def state_hash(self) -> str:
@@ -305,10 +369,17 @@ class Simulation:
 
     def save_replay(self, path: str | Path) -> None:
         with open(path, "w", encoding="utf-8") as f:
-            json.dump({"format": REPLAY_FORMAT,
-                       "scenario": self.scenario.to_dict(),
-                       "commands": [c.__dict__ for c in self.log],
-                       "final_tick": self.tick, "final_hash": self.state_hash()}, f, indent=1)
+            json.dump(
+                {
+                    "format": REPLAY_FORMAT,
+                    "scenario": self.scenario.to_dict(),
+                    "commands": [c.__dict__ for c in self.log],
+                    "final_tick": self.tick,
+                    "final_hash": self.state_hash(),
+                },
+                f,
+                indent=1,
+            )
 
     @classmethod
     def replay(cls, path: str | Path, until_tick: int | None = None) -> "Simulation":
@@ -323,9 +394,14 @@ class Simulation:
         i = 0
         while sim.tick < target:
             while i < len(cmds) and cmds[i].tick == sim.tick:
-                sim._apply(cmds[i]); i += 1
-            if sim.step() == 0:   # outcome reached early
+                sim._apply(cmds[i])
+                i += 1
+            if sim.step() == 0:  # outcome reached early
                 break
+        # Commands can be issued while paused at the final saved tick.
+        while i < len(cmds) and cmds[i].tick == sim.tick and sim.tick <= target:
+            sim._apply(cmds[i])
+            i += 1
         return sim
 
     def _apply(self, c: Command) -> None:
@@ -342,9 +418,15 @@ class Simulation:
         elif c.kind == "order":
             u = self.world.by_id(a["uid"])
             if u is not None:
-                u.give(Order(a["kind"], tuple(a["target"]) if a.get("target") else None,
-                             [tuple(p) for p in (a.get("points") or [])], a.get("unit_id")),
-                       queue=a.get("queue", False))
+                u.give(
+                    Order(
+                        a["kind"],
+                        tuple(a["target"]) if a.get("target") else None,
+                        [tuple(p) for p in (a.get("points") or [])],
+                        a.get("unit_id"),
+                    ),
+                    queue=a.get("queue", False),
+                )
         elif c.kind == "paint":
             self._paint(a["x"], a["y"], a["ttype"], a.get("radius", 0))
         elif c.kind == "extinguish":
@@ -361,9 +443,13 @@ class Simulation:
             "format": SAVE_FORMAT,
             "scenario": self.scenario.to_dict(),
             "grid": self.grid.meta(),
-            "tick": self.tick, "spent": self.spent, "budget": self.budget,
-            "outcome": self.outcome, "outcome_reason": self.outcome_reason,
-            "contained_at": self.contained_at, "fire_started": self._fire_started,
+            "tick": self.tick,
+            "spent": self.spent,
+            "budget": self.budget,
+            "outcome": self.outcome,
+            "outcome_reason": self.outcome_reason,
+            "contained_at": self.contained_at,
+            "fire_started": self._fire_started,
             "events_done": sorted(self._events_done),
             "structures_lost_seen": self._structures_lost_seen,
             "log": [c.__dict__ for c in self.log],
@@ -387,9 +473,13 @@ class Simulation:
         sim.scenario = Scenario.from_dict(meta["scenario"])
         sim.grid = FireGrid.from_arrays(arrays, meta["grid"])
         sim.world = World.from_dict(meta["world"])
-        sim.tick = int(meta["tick"]); sim.spent = float(meta["spent"]); sim.budget = meta["budget"]
-        sim.outcome = meta["outcome"]; sim.outcome_reason = meta["outcome_reason"]
-        sim.contained_at = meta["contained_at"]; sim._fire_started = bool(meta["fire_started"])
+        sim.tick = int(meta["tick"])
+        sim.spent = float(meta["spent"])
+        sim.budget = meta["budget"]
+        sim.outcome = meta["outcome"]
+        sim.outcome_reason = meta["outcome_reason"]
+        sim.contained_at = meta["contained_at"]
+        sim._fire_started = bool(meta["fire_started"])
         sim._events_done = set(meta["events_done"])
         sim._structures_lost_seen = int(meta.get("structures_lost_seen", 0))
         sim.log = [Command(**c) for c in meta["log"]]

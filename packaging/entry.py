@@ -5,6 +5,7 @@ Paths are resolved relative to the directory you ran it from. A bare scenario na
 isn't found there is looked up in the bundled scenarios folder, so
 `backburn.exe view wall_of_fire.json` works from anywhere.
 """
+
 import os
 import sys
 

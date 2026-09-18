@@ -4,6 +4,7 @@ Everything numeric that a designer might tune lives in the JSON files, not here.
 This module only turns those files into NumPy arrays indexed by terrain id so the
 simulation can stay fully vectorised.
 """
+
 from __future__ import annotations
 
 import json
@@ -47,15 +48,15 @@ N_TERRAIN = len(_by_id)
 @dataclass(frozen=True)
 class TerrainTables:
     names: list[str]
-    color: np.ndarray          # (N,3) uint8
-    fuel: np.ndarray           # (N,) float32 starting fuel
+    color: np.ndarray  # (N,3) uint8
+    fuel: np.ndarray  # (N,) float32 starting fuel
     ignition_rate: np.ndarray  # (N,) float32
-    burn_rate: np.ndarray      # (N,) float32 fuel consumed per second while burning
-    heat_output: np.ndarray    # (N,) float32 heat emitted per second while burning
-    smolder_time: np.ndarray   # (N,) float32 seconds of residual heat after fuel is gone
-    move_cost: np.ndarray      # (n_moveclass, N) float32, inf = impassable
+    burn_rate: np.ndarray  # (N,) float32 fuel consumed per second while burning
+    heat_output: np.ndarray  # (N,) float32 heat emitted per second while burning
+    smolder_time: np.ndarray  # (N,) float32 seconds of residual heat after fuel is gone
+    move_cost: np.ndarray  # (n_moveclass, N) float32, inf = impassable
     is_water_source: np.ndarray  # (N,) bool
-    is_objective: np.ndarray     # (N,) bool
+    is_objective: np.ndarray  # (N,) bool
 
     def cost_for(self, mc: MoveClass) -> np.ndarray:
         return self.move_cost[int(mc)]
