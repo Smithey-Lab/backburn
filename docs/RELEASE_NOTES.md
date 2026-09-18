@@ -1,3 +1,12 @@
+## Backburn v0.4.0 — smooth movement and aircraft sorties
+
+- Units animate between simulation ticks without speeding up the fire.
+- Planes stage beyond the map sides, fly through their drop runs, and exit before reloading. Helicopters retain hovering and rescue behavior.
+- Reload countdowns, READY labels, resource bars and completion notices make availability clear. Orders queued during reloading wait until the aircraft is full.
+- Maps are 50% wider and taller than v0.3.2. Existing saves keep their original dimensions.
+- Dispatch shows delivery times and an inbound countdown, closes after a purchase, and provides a Locate button on arrival. Bulldozer dispatch is reduced from 150 to 45 simulated seconds.
+- Terrain rendering caches unchanged frames and scales only the visible area.
+
 ## Backburn v0.3.2 — Windows installation fix
 
 - Install into a fresh version folder and activate it only after the copy completes, avoiding Windows directory-rename permission failures.

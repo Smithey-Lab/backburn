@@ -103,7 +103,13 @@ def details(screen, sim, to_screen, zoom, viewport, clock):
             screen.blit(smoke, (sx - r * 2 + rise, sy - r * 4 - rise))
 
 
-def unit_icon(screen, kind, pos, color, selected=False, clock=0, size=12):
+def unit_icon(screen, kind, pos, color, selected=False, clock=0, size=12, heading=None):
+    if heading is not None:
+        tile = pygame.Surface((72, 72), pygame.SRCALPHA)
+        unit_icon(tile, kind, (36, 36), color, selected, clock, size)
+        rotated = pygame.transform.rotozoom(tile, -90 - math.degrees(heading), 1)
+        screen.blit(rotated, rotated.get_rect(center=pos))
+        return
     x, y = map(int, pos)
     r = size
     pygame.draw.ellipse(screen, (27, 34, 30), (x - r + 3, y - r // 2 + 4, r * 2, r))
