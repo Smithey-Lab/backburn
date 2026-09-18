@@ -1,0 +1,36 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ matrix.python }}" }
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+        env: { SDL_VIDEODRIVER: dummy, SDL_AUDIODRIVER: dummy }
+      - run: python tools/gen_tables.py --check
+      - run: python -m backburn validate scenarios/*.json
+        shell: bash
+      - run: python -m backburn bench --ticks 200
+  build-windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: python -m pip install -r requirements-dev.txt
+      - run: pyinstaller --noconfirm --clean packaging/backburn.spec
+      - run: dist\backburn\backburn.exe bench --ticks 50
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backburn-windows
+          path: dist/backburn

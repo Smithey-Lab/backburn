@@ -1,0 +1,88 @@
+{
+  "name": "Wall of Fire",
+  "briefing": "Extreme wind, heavy timber, embers flying. Direct attack will fail; anchor on the river and the road, cut wide, and use aircraft to hold the flanks. Lose if more than 45% of the fuel burns.",
+  "notes": "Mission name from the original RTS (brief \u00a75); layout is new. Wind is above the spotting threshold from the start.",
+  "seed": 44,
+  "width": 160,
+  "height": 110,
+  "moisture": 0.08,
+  "wind": {
+    "speed": 12,
+    "bearing": 80
+  },
+  "airbase": [
+    4,
+    4
+  ],
+  "staging": [
+    12,
+    55
+  ],
+  "duration": 2400,
+  "budget": 24000,
+  "terrain": {
+    "mode": "generate",
+    "params": {
+      "water_level": 0.24,
+      "shrub_level": 0.4,
+      "forest_level": 0.48,
+      "dense_level": 0.6,
+      "roads": 2,
+      "structures": 10
+    }
+  },
+  "elevation": {
+    "mode": "generate",
+    "relief": 90,
+    "seed": 3
+  },
+  "ignitions": [
+    {
+      "x": 6,
+      "y": 50,
+      "radius": 2
+    },
+    {
+      "x": 8,
+      "y": 62,
+      "radius": 1
+    }
+  ],
+  "units": [
+    {
+      "type": "BULLDOZER",
+      "x": 12,
+      "y": 55
+    },
+    {
+      "type": "HOTSHOTS",
+      "x": 14,
+      "y": 55
+    },
+    {
+      "type": "HELICOPTER",
+      "x": 4,
+      "y": 4
+    }
+  ],
+  "objectives": {
+    "max_area_burned_pct": 45,
+    "win_on_contained": true
+  },
+  "events": [
+    {
+      "at": 600,
+      "wind": {
+        "bearing": 130
+      },
+      "message": "Frontal passage: wind backing to the south-east"
+    },
+    {
+      "at": 900,
+      "spawn": {
+        "type": "P3_BOMBER"
+      },
+      "message": "State has assigned a P-3 to your incident"
+    }
+  ]
+}

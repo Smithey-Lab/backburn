@@ -1,16 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "backburn"
-version = "0.1.0"
-description = "Clean-room wildfire tactics simulation core (Python prototype)"
+version = "0.2.0"
+description = "Clean-room wildfire tactics simulation core (Python prototype) with a playable viewer"
+readme = "README.md"
 requires-python = ">=3.10"
+license = {text = "Proprietary — personal project; see README"}
 dependencies = ["numpy>=1.26", "pillow>=10"]
 
 [project.optional-dependencies]
 viewer = ["pygame>=2.5"]
-dev = ["pytest>=8", "pygame>=2.5"]
+dev = ["pygame>=2.5", "pytest>=8", "jsonschema>=4", "pyinstaller>=6"]
+
+[project.scripts]
+backburn = "backburn.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["backburn*"]
 
 [tool.setuptools.package-data]
 backburn = ["data/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -77,7 +77,35 @@ research brief), **inferred** (from screenshots/descriptions), or **new** (our c
   blocky top-down with hard colour separation, so flat colour cells are already close.
   Original sprites come after step 8 of the MVP order.
 
+## Added in v0.2 (2026-09-18)
+
+- **Ember spotting is a separate process from adjacency spread.** *(documented mechanism,
+  new model)* Only above `spot_min_wind`, only from hot fuels, embers fly for a few ticks
+  and ignite on landing. This is what lets narrow lines fail in a gale.
+- **Slope uses `exp(slope_gain × grade)`.** *(new)* Rothermel-flavoured, cheap, cached per
+  direction. Flat maps skip it.
+- **Buildings are 4-connected components of STRUCTURE cells; a building is lost when any
+  cell burns.** *(new)* Objectives, HUD and score count buildings, never cells.
+- **Budget is per scenario, costs per unit, arrivals are delayed.** *(documented: Sandbox
+  budget/resource setup)* Ground units arrive at `staging`, aircraft at `airbase`. Free
+  reinforcements come from events, not from a second code path.
+- **Civilians have no orders.** *(documented: rescue objective)* They flee on their own and
+  are rescued by entering the safe zone, on foot or by helicopter.
+- **Scenario events are declarative and part of the scenario.** *(new)* So replays never
+  log them and the file stays the single source of truth.
+- **Outcome precedence: structure limit → civilian limit → burn limit → contained →
+  timeout.** *(new)* `Simulation.step()` returns 0 once decided; the UI doesn't need a
+  separate game-over flag.
+- **Two persistence formats, no pickling.** *(documented: save/load + replay)* Replay =
+  scenario + command log; savegame = zip of JSON + npz with the RNG state.
+- **Strict validation with field-naming errors, plus JSON Schema.** *(new)* Loading a bad
+  file fails fast and says which field.
+- **Docs tables are generated from the data files and checked in CI.** *(new)* The
+  numbers in `docs/` cannot drift from the numbers the sim uses.
+- **One-folder PyInstaller build, not one-file.** *(new)* One-file unpacks ~100 MB on
+  every launch and trips antivirus heuristics.
+
 ## Explicitly deferred
 
-Multiplayer, voice, ember spotting, elevation-driven slope, civilians/rescue, scoring,
-audio. All are in the brief and none block the fire model.
+Multiplayer, voice, weather-driven moisture, unit destruction, audio, sprites. All are in
+the brief or the roadmap and none block the fire model.

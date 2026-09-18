@@ -78,14 +78,16 @@ def test_no_wind_is_roughly_isotropic():
     assert max(ex + ey) < 1.6 * min(ex + ey)
 
 
-def test_grass_faster_than_dense_forest():
+def test_fuel_ordering_grass_shrub_forest_dense():
+    """Area burned after a fixed time must strictly decrease through the fuel ladder."""
     res = {}
-    for tt in (T.GRASS, T.DENSE_FOREST):
-        g = FireGrid(flat(tt, 128, 128), seed=3); g.set_wind(5, 90); g.ignite(20, 64, 1)
+    for tt in (T.GRASS, T.SHRUB, T.FOREST, T.DENSE_FOREST):
+        g = FireGrid(flat(tt, 128, 128), seed=3); g.set_wind(4, 90); g.ignite(20, 64, 1)
         for _ in range(120):
             g.step()
-        res[tt] = burn_extent(g, 20)[0]
-    assert res[T.GRASS] > 3 * res[T.DENSE_FOREST], res
+        res[tt] = int((g.state > 0).sum())
+    assert res[T.GRASS] > res[T.SHRUB] > res[T.FOREST] > res[T.DENSE_FOREST], res
+    assert res[T.GRASS] > 4 * res[T.DENSE_FOREST], res
 
 
 def test_firebreak_holds_without_spotting():
@@ -136,13 +138,18 @@ def test_burn_lifecycle():
     assert g.state[8, 8] == COLD
 
 
-def test_structure_loss_counted():
-    t = flat(T.GRASS, 32, 32); t[10:12, 10:12] = int(T.STRUCTURE)
-    g = FireGrid(t, seed=1); g.ignite(5, 10, 1)
-    for _ in range(200):
+def test_structures_counted_as_buildings_not_cells():
+    t = flat(T.GRASS, 32, 32)
+    t[10:12, 10:12] = int(T.STRUCTURE)      # one 2×2 house
+    t[20:23, 20:21] = int(T.STRUCTURE)      # one 3×1 house
+    t[:, 16] = int(T.WATER)                 # canal keeps the fire on the left half
+    g = FireGrid(t, seed=1)
+    assert g.stats().structures_total == 2
+    g.ignite(5, 10, 1)
+    for _ in range(250):
         g.step()
     s = g.stats()
-    assert s.structures_total == 4 and s.structures_lost == 4
+    assert s.structures_lost == 1, s
 
 
 # ---- pathfinding -------------------------------------------------------------
