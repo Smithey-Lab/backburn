@@ -1,6 +1,16 @@
 # Porting the Python SimulationCore into Godot
 
-Status: scaffolding only. `project.godot` opens, the camera works, nothing simulates.
+Status: shell verified with Godot 4.3 headless (`godot --headless --path godot --quit-after 10`
+prints the loaded scenario). It loads the balance JSON through the `Balance` autoload, draws
+any grid-mode scenario from `data/scenarios/` as a nearest-filtered texture, shows the
+terrain under the cursor, and pans/zooms. Nothing simulates yet: that is the C# port below.
+
+To view another scenario: `godot --path godot -- res://data/scenarios/wall_of_fire.json`.
+The four shipped scenarios are baked to grid mode in `data/scenarios/` (regenerate with the
+snippet in `docs/DEVELOPMENT.md` if you change them in `scenarios/`).
+
+Input note: the brief maps `W` to both "pan up" and "wind overlay"; the shell keeps WASD
+for panning and puts the wind overlay on `N`.
 
 ## What ports where
 
@@ -11,7 +21,8 @@ Status: scaffolding only. `project.godot` opens, the camera works, nothing simul
 | `backburn/pathfinding.py`| `Sim/Pathfinding.cs` or Godot `AStarGrid2D` | C# | `AStarGrid2D` is fine for ground units if you set per-cell weights from the move-cost table each time terrain changes. |
 | `backburn/units.py`      | `Sim/Units.cs`                      | C#       | State machines are plain code; nothing Godot-specific. |
 | `backburn/scenario.py`   | `Sim/Scenario.cs`                   | C#       | JSON format is already defined; keep both modes. |
-| `backburn/render.py`     | `scripts/MapView.gd`, `FireLayer`   | GDScript | Terrain → TileMap once; fire/water/retardant → one `Image` updated per tick → `ImageTexture`. |
+| `backburn/render.py`     | `scripts/MapView.gd` (done for terrain) | GDScript | Terrain → one `ImageTexture` (done); fire/water/retardant → the `FireLayer` image, rewritten per tick by the sim. |
+| `backburn/config.py`     | `scripts/Balance.gd` (done)          | GDScript | Autoload; reads the same JSON files. The C# sim should read `Balance` or the files directly — never copy numbers. |
 | `backburn/viewer.py`     | `scripts/Main.gd`, `scripts/Orders.gd`, `UI/` | GDScript | Same control scheme. UI uses Control nodes. |
 
 ## Why C# for the sim

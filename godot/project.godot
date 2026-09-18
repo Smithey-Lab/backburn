@@ -11,6 +11,10 @@ run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.3", "Forward Plus")
 config/icon="res://icon.svg"
 
+[autoload]
+
+Balance="*res://scripts/Balance.gd"
+
 [display]
 
 window/size/viewport_width=1280
@@ -25,7 +29,7 @@ pan_down={"deadzone": 0.5, "events": [Object(InputEventKey,"keycode":83)]}
 pan_left={"deadzone": 0.5, "events": [Object(InputEventKey,"keycode":65)]}
 pan_right={"deadzone": 0.5, "events": [Object(InputEventKey,"keycode":68)]}
 overlay_fire={"deadzone": 0.5, "events": [Object(InputEventKey,"keycode":70)]}
-overlay_wind={"deadzone": 0.5, "events": [Object(InputEventKey,"keycode":87)]}
+overlay_wind={"deadzone": 0.5, "events": [Object(InputEventKey,"keycode":78)]}
 queue_modifier={"deadzone": 0.5, "events": [Object(InputEventKey,"keycode":4194325)]}
 
 [rendering]

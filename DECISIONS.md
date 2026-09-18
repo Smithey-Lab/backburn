@@ -14,6 +14,26 @@ research brief), **inferred** (from screenshots/descriptions), or **new** (our c
 
 ## Engine and language
 
+### v0.3 shipping decision
+
+The first downloadable Windows release ships the existing NumPy simulation with a
+new pygame-ce desktop interface. This retains the tested v0.2 mechanics, avoids a
+second simulation implementation, and supports standalone PyInstaller packaging.
+The Godot folder is an archived port experiment, not the current shipping engine.
+The earlier engine choices below describe the prototype's original plan.
+
+The desktop runs six fixed simulation ticks per real second at normal speed;
+the older tuning harness retains ten. Each tick still represents one simulated
+second, so replays and balance remain deterministic. Pausing supports planning.
+
+New art is generated from geometric sprites and seeded map coordinates. UI audio
+is synthesized locally; no source-game assets are bundled. Saves use per-user
+storage outside the installation. Updates stage complete, checksummed versions
+from GitHub Releases and switch a small current-version pointer after validation.
+
+Rescue-only missions (rescue_all_civilians true and win_on_contained false) finish
+when everyone is safe. Containment missions wait for scheduled future ignitions.
+
 - **Shipping engine: Godot 4.3+.** *(new)* Text-based scenes, headless CLI, one-command
   Windows export, and a UI toolkit we don't have to write. Unity and Unreal rejected
   for agent-workflow reasons (editor-bound, binary Blueprints).
@@ -77,7 +97,35 @@ research brief), **inferred** (from screenshots/descriptions), or **new** (our c
   blocky top-down with hard colour separation, so flat colour cells are already close.
   Original sprites come after step 8 of the MVP order.
 
+## Added in v0.2 (2026-09-18)
+
+- **Ember spotting is a separate process from adjacency spread.** *(documented mechanism,
+  new model)* Only above `spot_min_wind`, only from hot fuels, embers fly for a few ticks
+  and ignite on landing. This is what lets narrow lines fail in a gale.
+- **Slope uses `exp(slope_gain × grade)`.** *(new)* Rothermel-flavoured, cheap, cached per
+  direction. Flat maps skip it.
+- **Buildings are 4-connected components of STRUCTURE cells; a building is lost when any
+  cell burns.** *(new)* Objectives, HUD and score count buildings, never cells.
+- **Budget is per scenario, costs per unit, arrivals are delayed.** *(documented: Sandbox
+  budget/resource setup)* Ground units arrive at `staging`, aircraft at `airbase`. Free
+  reinforcements come from events, not from a second code path.
+- **Civilians have no orders.** *(documented: rescue objective)* They flee on their own and
+  are rescued by entering the safe zone, on foot or by helicopter.
+- **Scenario events are declarative and part of the scenario.** *(new)* So replays never
+  log them and the file stays the single source of truth.
+- **Outcome precedence: structure limit → civilian limit → burn limit → contained →
+  timeout.** *(new)* `Simulation.step()` returns 0 once decided; the UI doesn't need a
+  separate game-over flag.
+- **Two persistence formats, no pickling.** *(documented: save/load + replay)* Replay =
+  scenario + command log; savegame = zip of JSON + npz with the RNG state.
+- **Strict validation with field-naming errors, plus JSON Schema.** *(new)* Loading a bad
+  file fails fast and says which field.
+- **Docs tables are generated from the data files and checked in CI.** *(new)* The
+  numbers in `docs/` cannot drift from the numbers the sim uses.
+- **One-folder PyInstaller build, not one-file.** *(new)* One-file unpacks ~100 MB on
+  every launch and trips antivirus heuristics.
+
 ## Explicitly deferred
 
-Multiplayer, voice, ember spotting, elevation-driven slope, civilians/rescue, scoring,
-audio. All are in the brief and none block the fire model.
+Multiplayer, voice, weather-driven moisture, unit destruction, audio, sprites. All are in
+the brief or the roadmap and none block the fire model.

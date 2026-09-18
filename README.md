@@ -1,81 +1,81 @@
 # Backburn
 
-Clean-room, personal desktop recreation of a classic top-down wildfire tactics RTS.
-This repo is the **SimulationCore** prototype in Python + NumPy, plus a pygame
-tuning harness and Godot 4 scaffolding for the shipping game.
+An original top-down wildfire tactics game for Windows. Read the wind, send crews to
+cut firebreaks, coordinate air drops, and bring stranded hikers home.
 
-Read `DECISIONS.md` first. Every architecture choice is pinned there with its reason.
+![Backburn tactical view](docs/images/desktop-demo.png)
 
-## Status — 2026-09-18
+## Download and play
 
-Against the brief's MVP order (§11):
+Download **[Backburn-Setup.exe](https://github.com/Smithey-Lab/backburn/releases/latest/download/Backburn-Setup.exe)**,
+open it, and click **Install Backburn**. No Python, Git, or administrator account is needed.
+The Desktop shortcut opens a launcher with **Play** and **Install update** buttons.
+Saves and scores survive updates. Offline play is supported after installation.
 
-| # | Step | State |
-|---|------|-------|
-| 1 | Map + pan/zoom + tile properties | **done** (procedural + explicit-grid maps, 10 terrain types, viewer pans/zooms) |
-| 2 | Ignition and cell-to-cell spread | **done** (probabilistic CA, UNBURNED→BURNING→SMOLDER→COLD) |
-| 3 | Wind + terrain-dependent spread | **done** (global wind vector, per-fuel rates, tuned: grass ≈5× dense forest) |
-| 4 | One hose team + one cut team | **done** (hose draws a line to water, burns, reconnects; cut crews lay handline) |
-| 5 | Helicopter move / refill / line drop | **done** |
-| 6 | Buildings / objectives / scoring | **partial** (structures burn and are counted; no score formula yet) |
-| 7 | Engine / brush truck / dozer | **done** (movement classes, auto-refill, dozer cuts 2-wide through dense fuel) |
-| 8 | Water + retardant aircraft | **done** (line drops, return-to-base reload timer) |
-| 9 | Scenario editor | **partial** (paint terrain, ignite, change wind in the viewer; JSON round-trips) |
-| 10 | Polish, sound, UI feedback | not started (placeholder rectangles by design) |
-| 11 | Save/load + deterministic replay | **done** (command log replays to an identical state hash) |
-| 12 | Multiplayer | deferred |
+Prefer portable? Extract the [Windows zip](https://github.com/Smithey-Lab/backburn/releases/latest/download/Backburn-Windows-x64.zip)
+and run Backburn.exe. Windows binaries are currently unsigned.
+See [installation details](docs/INSTALLING.md) and [release notes](docs/RELEASE_NOTES.md).
 
-21 behavioural tests pass (`pytest -q`). The tick runs at ~450 ticks/s on a 128×96
-map with 8 units, i.e. ~45× real time headroom.
+## The demo
 
-Not implemented yet: ember spotting, slope, civilians/rescue, hotshots/smokejumpers/
-fire boat/P-3 beyond their data entries, scoring, audio.
+- Four incidents: Prairie Fire, Stranded Hikers, Refinery Row, Wall of Fire.
+- Wind, slope, fuel, moisture, water, retardant, smoldering and airborne embers.
+- Engines, brush trucks, hose teams, cut teams, dozers, hotshots, helicopters and bombers.
+- Helicopter rescues, resource dispatch, weather events, objectives and scores.
+- Mission briefings, field guide, unit roster, minimap, tactical overlays and sandbox tools.
+- Original procedural sprites, animated fire and synthesized interface sounds.
+- Quicksaves, autosaves, replay export, personal bests and GitHub updates.
 
-## Run it
+Single player. Multiplayer, voice and a full scenario authoring interface are future work.
+This is a game, not an operational wildfire model. Balance is experimental.
 
+## Controls
+
+| Action | Control |
+|---|---|
+| Select unit | Left-click map or roster |
+| Context order | Right-click |
+| Cut line / aircraft drop | Right-drag from start to end |
+| Queue orders | Hold Shift |
+| Rescue | Select helicopter, click hiker; right-click safe zone to unload |
+| Force move / restore context orders | M / Q |
+| Pause and plan | Space |
+| Speed | 1 / 2 / 3 |
+| Pan / zoom / fit | WASD or middle-drag / wheel / Home |
+| Dispatch / help / overlay | B / H / O |
+| Save / load / export replay | F6 / F7 / F5 |
+
+Start with Stranded Hikers for a short rescue mission, or Prairie Fire to use the full fleet.
+
+## Development
+
+Python 3.14 is used for CI and Windows builds; the source requires Python 3.12 or newer.
+
+```sh
+python -m venv .venv
+# Activate the virtual environment for your shell, then:
+pip install -r requirements-dev.txt
+python -m backburn.game
+python -m pytest
+ruff check .
+ruff format --check .
+python tools/gen_tables.py --check
+python tools/build_release.py  # Windows
 ```
-pip install -r requirements.txt
-python -m backburn view                          # play the Prairie Fire scenario
-python -m backburn run scenarios/prairie_fire.json --ticks 600 --gif out.gif
-python -m backburn gen new.json --seed 12        # bake a generated map to grid mode
-pytest -q
-```
 
-Viewer controls are listed at the top of `backburn/viewer.py` and follow the brief §9.
+The original tuning harness remains available as `python -m backburn view` and the
+headless tools as `python -m backburn --help`. `godot/` is an archived port experiment;
+the shipping desktop game uses pygame-ce and the existing NumPy simulation.
 
-## Layout
+`main` is the release branch, `develop` the integration branch, and `feature/*` / `fix/*`
+branches carry changes through pull requests. See [repository workflow](docs/REPOSITORY.md),
+[architecture decisions](DECISIONS.md), [simulation docs](docs/ARCHITECTURE.md), and
+[security policy](SECURITY.md).
 
-```
-backburn/
-  data/terrain.json     fire + movement numbers per terrain  ← tune here
-  data/units.json       unit balance (speed, capacity, radius) ← tune here
-  config.py             JSON → NumPy lookup tables
-  fire.py               the cellular automaton (FireGrid)
-  pathfinding.py        A* on the move-cost grid
-  units.py              unit state machines, orders, World
-  scenario.py           JSON scenarios + procedural map generator
-  sim.py                Simulation facade, command log, replay
-  render.py             headless PNG/GIF renderer
-  viewer.py             pygame harness (not the shipping UI)
-scenarios/              JSON scenarios
-tests/                  pytest suite
-godot/                  Godot 4 project shell + PORTING.md
-DECISIONS.md            pinned choices, tagged documented / inferred / new
-```
+## Project origins
 
-## Tuning workflow
-
-1. Change a number in `data/terrain.json` or `data/units.json`.
-2. `pytest -q` — the behavioural tests guard the relationships that matter
-   (wind bias, fuel ordering, breaks hold, water works), not exact values.
-3. `python -m backburn run … --gif` and look at it, or play it in the viewer.
-
-The fire constants were set by sweeping `exposure_scale`, `wind_gain` and the
-per-fuel `ignition_rate` until a grass front moved ~0.35 cells/s downwind in a
-6 m/s wind, ~0.03 upwind, and dense forest ~0.07 downwind. Those are starting
-points, not facts (brief §15).
-
-## Working name
-
-"Backburn" is a placeholder chosen so nothing here carries the original title.
-Rename freely; it appears only in the package name, README, and window title.
+Built from the user-supplied Backburn v0.2.0 prototype and research brief, inspired by
+classic FireJumpers gameplay. Code and visuals are original; no extracted game assets
+or original-game code are distributed. Not affiliated with the original developer.
+The repository is public for development and distribution. No open-source license is
+currently granted; the prototype's all-rights-reserved status is retained.

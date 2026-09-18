@@ -5,3 +5,14 @@ __pycache__/
 replay.json
 /out/
 godot/.godot/
+/.venv/
+/build/
+/dist/
+/artifacts/
+*.bbsave
+*.tmp
+replay.json
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+.godot/

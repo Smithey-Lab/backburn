@@ -1,0 +1,68 @@
+name: CI
+on:
+  push:
+    branches: [main, develop, 'feature/**', 'fix/**']
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  quality:
+    name: Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14'
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: python tools/gen_tables.py --check
+      - run: pip-audit -r requirements.txt
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      SDL_VIDEODRIVER: dummy
+      SDL_AUDIODRIVER: dummy
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14'
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest
+      - run: python -m backburn.game --smoke-test
+  build:
+    name: Windows package
+    needs: [quality, test]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14'
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: python tools/build_release.py
+      - name: Smoke test packaged game
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist/Backburn/Backburn.exe -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Packaged game failed' }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: windows-demo
+          path: |
+            dist/Backburn-Windows-x64.zip
+            dist/Backburn-Setup.exe
+            dist/SHA256SUMS.txt
+          retention-days: 14

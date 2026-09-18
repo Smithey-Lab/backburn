@@ -3,12 +3,25 @@
 SimulationCore only. No rendering dependencies beyond an optional headless
 PNG/GIF exporter (backburn.render) and an optional pygame viewer (backburn.viewer).
 """
-from .config import TERRAIN, FIRE, UNITS, TerrainType, MoveClass
-from .sim import Simulation
-from .scenario import Scenario, load_scenario, save_scenario
+
+from .config import FIRE, TERRAIN, UNITS, MoveClass, TerrainType
+from .scenario import Scenario, ScenarioError, load_scenario, save_scenario
+from .sim import CONTAINED, FAILED, RUNNING, TIMEOUT, Simulation
 
 __all__ = [
-    "TERRAIN", "FIRE", "UNITS", "TerrainType", "MoveClass",
-    "Simulation", "Scenario", "load_scenario", "save_scenario",
+    "TERRAIN",
+    "FIRE",
+    "UNITS",
+    "TerrainType",
+    "MoveClass",
+    "Simulation",
+    "Scenario",
+    "ScenarioError",
+    "load_scenario",
+    "save_scenario",
+    "RUNNING",
+    "CONTAINED",
+    "FAILED",
+    "TIMEOUT",
 ]
-__version__ = "0.1.0"
+__version__ = "0.3.0"
