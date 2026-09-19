@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -12,15 +13,16 @@ import numpy as np
 import pygame
 
 from . import __version__
-from .art import details, terrain_surface, unit_icon
-from .campaign import expanded_scenario
+from .art import MapLayer, details, thumbnail, unit_icon
+from .campaign import desktop_scenario
 from .config import FIRE, TERRAIN, UNITS
 from .drops import capacity_length, clip_path, coverage_centers, length, payload_per_cell, smooth_path
 from .fire import bearing_to_vector
+from .incidents import RANDOM_NAME, describe, incident_seed, random_incident
 from .render import OVERLAYS
 from .scenario import load_scenario
 from .sim import RUNNING, Simulation
-from .storage import data_dir, read_json, save_game, write_json
+from .storage import data_dir, read_json, save_game, save_snapshot, write_json
 from .units import ABOARD, CUT, DROP, DROPOFF, HOLD, MOVE, PICKUP
 
 BG = (16, 25, 29)
@@ -31,19 +33,51 @@ MUTED = (153, 173, 168)
 ORANGE = (238, 157, 82)
 TEAL = (124, 201, 179)
 NORMAL_TICKS_PER_SECOND = 1
-MISSIONS = ["prairie_fire", "stranded_hikers", "refinery_row", "wall_of_fire"]
+SPEEDS = (1, 3, 8, 16)
+RANDOM = "random"
+MISSIONS = [
+    "prairie_fire",
+    "stranded_hikers",
+    "refinery_row",
+    "wall_of_fire",
+    "canyon_run",
+    "lakeshore_cabins",
+    "highway_9",
+    "timber_ridge",
+    "ember_storm",
+    "fire_complex",
+    "long_watch",
+    RANDOM,
+]
 DESCRIPTIONS = [
-    "Hold the road. Protect the settlement.",
-    "Four hikers. One helicopter. Bring them home.",
-    "Protect an industrial corridor on a budget.",
-    "Heavy timber, airborne embers, shifting winds.",
+    "Hold the highways. Protect the settlement.",
+    "Six hikers on a burning ridge. One helicopter.",
+    "Protect two industrial strips on a budget.",
+    "Heavy timber, airborne embers, ninety minutes.",
+    "Fire runs uphill toward a town on the rim.",
+    "Cabins ring a lake. Boats, dips and engines.",
+    "A long corridor, two towns, new roadside starts.",
+    "No roads. Lightning. Crews walk or fly in.",
+    "Evacuate a town ahead of a wind-driven fire.",
+    "Three fires, one budget. Choose what to hold.",
+    "Survival: starts keep coming for two hours.",
+    "A new map and incident every time. Reroll it.",
 ]
 DIFFICULTIES = [
     "01 / FIRST RESPONSE",
     "02 / SEARCH & RESCUE",
-    "03 / RESOURCE MANAGEMENT",
-    "04 / EXTREME CONDITIONS",
+    "03 / RESOURCES",
+    "04 / EXTREME WEATHER",
+    "05 / TERRAIN",
+    "06 / WATER",
+    "07 / CORRIDOR",
+    "08 / BACKCOUNTRY",
+    "09 / EVACUATION",
+    "10 / COMPLEX",
+    "11 / SURVIVAL",
+    "RANDOM INCIDENT",
 ]
+THUMB = (320, 240)
 
 
 def scenario_dir():
@@ -67,13 +101,19 @@ class Game:
         self.page = "menu"
         self.modal = None
         self.mission = 0
-        self.scenarios = [
-            expanded_scenario(load_scenario(scenario_dir() / f"{key}.json")) for key in MISSIONS
-        ]
-        self.previews = [terrain_surface(Simulation(s)) for s in self.scenarios]
         self.settings = read_json(data_dir() / "settings.json", {"sound": True})
         self.progress = read_json(data_dir() / "progress.json", {})
-        self.sim = Simulation(self.scenarios[0])
+        self.random_seed = int(self.settings.get("random_seed") or incident_seed())
+        if self.settings.get("random_seed") != self.random_seed:
+            self.settings["random_seed"] = self.random_seed
+            try:
+                write_json(data_dir() / "settings.json", self.settings)
+            except OSError:
+                pass
+        self.scenarios = [self.load_mission(key) for key in MISSIONS]
+        self.previews = [None] * len(MISSIONS)
+        self.sim = None
+        self.map_layer = None
         self.buttons = []
         self.toast = ("", 0)
         self.zoom = 7
@@ -96,6 +136,9 @@ class Game:
         self.brush = 1
         self.result_saved = False
         self.auto_tick = 0
+        self.autosave_thread = None
+        self._view_cache = None
+        self._minimap_cache = None
         self.audio = None
         if pygame.mixer.get_init():
             frequency, _, channels = pygame.mixer.get_init()
@@ -106,25 +149,69 @@ class Game:
             self.audio = pygame.sndarray.make_sound(wave)
         self.layout()
 
+    # ---- missions -----------------------------------------------------------------------
+
+    def load_mission(self, key):
+        if key == RANDOM:
+            return random_incident(self.random_seed)
+        return desktop_scenario(load_scenario(scenario_dir() / f"{key}.json"))
+
+    def preview(self, index):
+        """Thumbnail for a mission card; generated once and cached on disk."""
+        if self.previews[index] is not None:
+            return self.previews[index]
+        s = self.scenarios[index]
+        folder = data_dir() / "thumbs"
+        path = folder / f"{MISSIONS[index]}_{s.seed}_{s.width}x{s.height}.png"
+        surf = None
+        if path.exists():
+            try:
+                surf = pygame.image.load(str(path)).convert()
+            except pygame.error:
+                surf = None
+        if surf is None:
+            surf = thumbnail(s.build_terrain(), THUMB)
+            try:
+                folder.mkdir(parents=True, exist_ok=True)
+                pygame.image.save(surf, str(path))
+            except (OSError, pygame.error):
+                pass
+        self.previews[index] = surf
+        return surf
+
+    def reroll(self):
+        self.random_seed = incident_seed()
+        self.settings["random_seed"] = self.random_seed
+        write_json(data_dir() / "settings.json", self.settings)
+        index = MISSIONS.index(RANDOM)
+        self.scenarios[index] = random_incident(self.random_seed)
+        self.previews[index] = None
+        self.mission = index
+
     def layout(self):
         w, h = self.screen.get_size()
         self.viewport = pygame.Rect(18, 92, max(200, w - 350), max(200, h - 212))
         self.sidebar = pygame.Rect(w - 316, 92, 298, h - 110)
         self.minimap = pygame.Rect(w - 298, h - 176, 262, 142)
+        self._view_cache = None
 
     def text(self, text, x, y, size=17, color=INK, font=None):
         surf = (font or self.fonts[size]).render(str(text), True, color)
         self.screen.blit(surf, (x, y))
         return surf.get_width()
 
-    def wrap(self, text, x, y, width, size=17, color=MUTED):
+    def wrap(self, text, x, y, width, size=17, color=MUTED, max_lines=None):
         words = str(text).split()
         line = ""
+        lines = 0
         for word in words:
             test = (line + " " + word).strip()
             if self.fonts[size].size(test)[0] > width and line:
                 self.text(line, x, y, size, color)
                 y += size + 8
+                lines += 1
+                if max_lines and lines >= max_lines:
+                    return y
                 line = word
             else:
                 line = test
@@ -150,6 +237,8 @@ class Game:
     def beep(self):
         if self.audio and self.settings.get("sound", True):
             self.audio.play()
+
+    # ---- camera -------------------------------------------------------------------------
 
     def fit(self):
         g = self.sim.grid
@@ -190,10 +279,12 @@ class Game:
     def clamp_point(self, p):
         return (min(self.sim.grid.w - 1, max(0, p[0])), min(self.sim.grid.h - 1, max(0, p[1])))
 
+    # ---- lifecycle ------------------------------------------------------------------------
+
     def start(self, sandbox=False):
-        self.sim = Simulation(
-            expanded_scenario(load_scenario(scenario_dir() / f"{MISSIONS[self.mission]}.json"))
-        )
+        key = MISSIONS[self.mission]
+        self.sim = Simulation(self.load_mission(key) if key != RANDOM else self.scenarios[self.mission])
+        self.map_layer = None
         self.sandbox = sandbox
         if sandbox:
             self.sim.scenario.objectives = {"win_on_contained": False}
@@ -217,6 +308,8 @@ class Game:
         self.editor_tool = None
         self.order_mode = "AUTO"
         self.overlay = 0
+        self._view_cache = None
+        self._minimap_cache = None
         self.tactical_camera()
 
     def save(self, name="quicksave.bbsave"):
@@ -226,6 +319,21 @@ class Game:
         except OSError as exc:
             self.say(f"Could not save: {exc}")
 
+    def autosave(self):
+        """Snapshot now (milliseconds), compress and write on a worker thread."""
+        if self.autosave_thread is not None and self.autosave_thread.is_alive():
+            return
+        snapshot = self.sim.snapshot()
+
+        def work():
+            try:
+                save_snapshot(snapshot, "autosave.bbsave")
+            except OSError:
+                pass
+
+        self.autosave_thread = threading.Thread(target=work, daemon=True)
+        self.autosave_thread.start()
+
     def load(self, name="quicksave.bbsave"):
         try:
             restored = Simulation.load_state(data_dir() / name)
@@ -233,7 +341,13 @@ class Game:
             self.say(f"Could not load save: {exc}")
             return
         self.sim = restored
-        self.mission = next((i for i, s in enumerate(self.scenarios) if s.name == restored.scenario.name), 0)
+        self.map_layer = None
+        names = [s.name for s in self.scenarios]
+        self.mission = (
+            names.index(restored.scenario.name)
+            if restored.scenario.name in names
+            else (MISSIONS.index(RANDOM) if restored.scenario.name.startswith(RANDOM_NAME) else 0)
+        )
         self.page = "game"
         self.modal = None
         self.paused = True
@@ -243,18 +357,25 @@ class Game:
         self.drag_points = []
         self.result_saved = False
         self.acc = 0
-        self.drag = None
-        self.drag_points = []
         self.previous_positions = {}
         self.latest_arrival = None
         self.auto_tick = restored.tick
+        self._view_cache = None
+        self._minimap_cache = None
         self.fit()
         self.say("Save loaded and paused. Press Space when ready.")
+
+    def progress_key(self):
+        return MISSIONS[self.mission]
+
+    # ---- actions ----------------------------------------------------------------------------
 
     def act(self, action):
         self.beep()
         if action.startswith("mission:"):
             self.mission = int(action.split(":")[1])
+        elif action == "reroll":
+            self.reroll()
         elif action == "start":
             self.start()
         elif action == "sandbox":
@@ -375,8 +496,8 @@ class Game:
                 }
                 if ev.key in keys:
                     self.act(keys[ev.key])
-                elif ev.key in (pygame.K_1, pygame.K_2, pygame.K_3):
-                    self.speed = {pygame.K_1: 1, pygame.K_2: 3, pygame.K_3: 8}[ev.key]
+                elif ev.key in (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4):
+                    self.speed = SPEEDS[(pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4).index(ev.key)]
                 elif ev.key == pygame.K_TAB:
                     ids = [
                         u.uid
@@ -495,6 +616,8 @@ class Game:
         elif self.editor_tool == "terrain":
             self.sim.cmd_paint(x, y, self.brush, 1)
 
+    # ---- orders -----------------------------------------------------------------------------
+
     def plan_drop(self, unit, raw, queue=False):
         payload = unit.tank
         if unit.is_plane and (queue or unit.state in ("EXITING", "RELOADING")):
@@ -591,41 +714,81 @@ class Game:
         if self.sandbox:
             return ["Sandbox / experiment freely", "No score limits. Change wind with [ ] - +"]
         if obj.get("rescue_all_civilians"):
-            lines.append(f"Rescue hikers: {st['civilians']['rescued']} / {st['civilians']['total']} safe")
+            lines.append(f"Rescue civilians: {st['civilians']['rescued']} / {st['civilians']['total']} safe")
         if obj.get("max_structures_lost") is not None:
             lines.append(f"Buildings lost: {st['structures_lost']} / {obj['max_structures_lost']} allowed")
         if obj.get("max_area_burned_pct") is not None:
             lines.append(f"Keep burned area below {obj['max_area_burned_pct']}%")
         if obj.get("win_on_contained", True):
             lines.append("Contain flames and cool remaining hot spots")
+        if obj.get("win_on_timeout"):
+            d = int(self.sim.scenario.duration)
+            lines.append(f"Or hold the line until {d // 60:02d}:{d % 60:02d}")
         return lines
+
+    def briefing_tip(self):
+        obj = self.sim.scenario.objectives
+        if obj.get("rescue_all_civilians"):
+            return (
+                "Buy a helicopter, select it, then click a civilian. Hold Shift to queue more pickups. "
+                "Right-click inside the green safe zone to unload. Civilians also walk to the zone on their own."
+            )
+        tip = (
+            "Buy your fleet, then select a card in the roster. Right-click to move or attack. Right-drag a line "
+            "with crews to cut a firebreak, or with aircraft to drop water. Dozers travel fast on roads. "
+            "Pause any time to plan; 1-4 set the speed."
+        )
+        if obj.get("win_on_timeout"):
+            tip += " This incident is also won by holding the limits until the clock runs out."
+        return tip
+
+    # ---- drawing ------------------------------------------------------------------------------
 
     def draw_menu(self):
         w, h = self.screen.get_size()
-        preview = pygame.transform.scale(self.previews[self.mission], (w, h))
+        preview = pygame.transform.scale(self.preview(self.mission), (w, h))
         self.screen.blit(preview, (0, 0))
         shade = pygame.Surface((w, h), pygame.SRCALPHA)
         shade.fill((9, 18, 21, 222))
         self.screen.blit(shade, (0, 0))
-        self.text("B A C K B U R N", 48, 36, 46)
-        self.text("W I L D F I R E   C O M M A N D", 51, 98, 15, ORANGE)
-        self.text("The wildfire is the opponent.", 48, 155, 32)
-        self.text("Read the land. Build your lines. Bring everyone home.", 50, 204, 20, MUTED)
-        card_w = (w - 120) // 4
+        compact = h < 840
+        self.text("B A C K B U R N", 48, 22 if compact else 30, 46)
+        self.text("W I L D F I R E   C O M M A N D", 51, 82 if compact else 92, 15, ORANGE)
+        self.text("The wildfire is the opponent.", 48, 112 if compact else 132, 32)
+        if not compact:
+            self.text("Read the land. Build your lines. Bring everyone home.", 50, 178, 20, MUTED)
+        columns = 6
+        gap = 8
+        card_w = (w - 96 - gap * (columns - 1)) // columns
+        card_h = 152 if compact else 166
+        top = 162 if compact else 218
         for i, s in enumerate(self.scenarios):
-            x, y = 48 + i * (card_w + 8), 280
-            rect = pygame.Rect(x, y, card_w, 260)
+            col, row = i % columns, i // columns
+            x, y = 48 + col * (card_w + gap), top + row * (card_h + gap)
+            rect = pygame.Rect(x, y, card_w, card_h)
             pygame.draw.rect(self.screen, PANEL, rect, border_radius=8)
-            self.screen.blit(pygame.transform.scale(self.previews[i], (card_w - 16, 126)), (x + 8, y + 8))
+            self.screen.blit(pygame.transform.smoothscale(self.preview(i), (card_w - 16, 72)), (x + 8, y + 8))
             pygame.draw.rect(self.screen, ORANGE if i == self.mission else LINE, rect, 2, border_radius=8)
-            self.text(DIFFICULTIES[i], x + 16, y + 151, 13, ORANGE)
-            self.text(s.name, x + 16, y + 177, 24)
-            self.wrap(DESCRIPTIONS[i], x + 16, y + 212, card_w - 30, 15)
+            self.text(DIFFICULTIES[i], x + 12, y + 86, 13, ORANGE)
+            name = s.name if MISSIONS[i] != RANDOM else RANDOM_NAME
+            self.text(name, x + 12, y + 103, 17)
+            self.wrap(DESCRIPTIONS[i], x + 12, y + 126, card_w - 22, 13, max_lines=1 if compact else 2)
             self.buttons.append((rect, f"mission:{i}"))
-        y = 565
-        self.wrap(self.scenarios[self.mission].briefing, 50, y, w - 460, 17)
+        y = top + 2 * (card_h + gap) + 6
+        s = self.scenarios[self.mission]
+        self.text(
+            f"{s.name.upper()}  /  {describe(s)}",
+            50,
+            y,
+            13,
+            TEAL,
+        )
+        self.wrap(s.briefing, 50, y + 22, w - 470, 17, max_lines=2 if compact else 3)
         self.button("DEPLOY TO INCIDENT", (w - 366, y, 316, 48), "start", True)
-        self.button("Open as sandbox", (w - 366, y + 60, 316, 40), "sandbox")
+        if MISSIONS[self.mission] == RANDOM:
+            self.button(f"Reroll incident (seed {self.random_seed})", (w - 366, y + 60, 316, 40), "reroll")
+        else:
+            self.button("Open as sandbox", (w - 366, y + 60, 316, 40), "sandbox")
         self.button(
             "Continue autosave",
             (50, h - 102, 190, 40),
@@ -644,19 +807,22 @@ class Game:
         )
         self.button("Exit", (w - 150, h - 102, 100, 40), "quit")
         self.text(f"ORIGINAL GAME / v{__version__} / WINDOWS DEMO", 50, h - 40, 13, MUTED)
-        best = self.progress.get(MISSIONS[self.mission], {})
+        best = self.progress.get(self.progress_key(), {})
         if best:
             self.text(f"Personal best  {best.get('score', 0):,.0f}", w - 360, h - 40, 15, TEAL)
+
+    def map_surface(self):
+        if self.map_layer is None:
+            self.map_layer = MapLayer(self.sim, OVERLAYS[self.overlay])
+            self._view_cache = None
+            self._minimap_cache = None
+        return self.map_layer.update(self.sim, OVERLAYS[self.overlay])
 
     def draw_map(self):
         scr = self.screen
         scr.set_clip(self.viewport)
         pygame.draw.rect(scr, (28, 43, 40), self.viewport)
-        key = (id(self.sim), self.sim.tick, self.overlay, len(self.sim.log))
-        if getattr(self, "terrain_cache_key", None) != key:
-            self.terrain_cache = terrain_surface(self.sim, OVERLAYS[self.overlay])
-            self.terrain_cache_key = key
-        surf = self.terrain_cache
+        surf = self.map_surface()
         visible = pygame.Rect(
             math.floor(self.cam[0]),
             math.floor(self.cam[1]),
@@ -664,12 +830,15 @@ class Game:
             math.ceil(self.viewport.h / self.zoom) + 2,
         ).clip(surf.get_rect())
         if visible.w and visible.h:
-            scaled = pygame.transform.scale(
-                surf.subsurface(visible),
-                (max(1, round(visible.w * self.zoom)), max(1, round(visible.h * self.zoom))),
-            )
+            key = (self.map_layer.stamp, tuple(visible), round(self.zoom, 4))
+            if self._view_cache is None or self._view_cache[0] != key:
+                scaled = pygame.transform.scale(
+                    surf.subsurface(visible),
+                    (max(1, round(visible.w * self.zoom)), max(1, round(visible.h * self.zoom))),
+                )
+                self._view_cache = (key, scaled)
             scr.blit(
-                scaled,
+                self._view_cache[1],
                 (
                     self.viewport.x + round((visible.x - self.cam[0]) * self.zoom),
                     self.viewport.y + round((visible.y - self.cam[1]) * self.zoom),
@@ -703,6 +872,17 @@ class Game:
                     pygame.draw.lines(scr, (230, 235, 205), False, pts, 1)
                     for p in pts[::3]:
                         pygame.draw.circle(scr, INK, p, 2)
+                if u.route is not None and u.route.blocks:
+                    # The unrefined remainder of a long move: block centres to the goal.
+                    from .pathfinding import BLOCK, BlockGraph
+
+                    bw = -(-self.sim.grid.w // BLOCK)
+                    pts = [pos]
+                    for node in u.route.blocks[::2]:
+                        by, bx = divmod(node // BlockGraph.MAX_COMP, bw)
+                        pts.append(self.to_screen(bx * BLOCK + BLOCK // 2, by * BLOCK + BLOCK // 2))
+                    pts.append(self.to_screen(*u.route.goal))
+                    pygame.draw.lines(scr, (150, 160, 140), False, pts, 1)
                 if u.current and len(u.current.points) >= 2:
                     pygame.draw.lines(scr, ORANGE, False, [self.to_screen(*p) for p in u.current.points], 2)
                 radius = u.spec.get("spray_radius", 0)
@@ -718,7 +898,7 @@ class Game:
                 scr, u.utype, pos, tuple(u.spec["color"]), u.uid == self.selected, now, 10, heading=heading
             )
             if u.uid == self.selected or u.is_civilian:
-                self.text("HIKER" if u.is_civilian else f"{u.uid:02d}", pos[0] + 15, pos[1] - 15, 13)
+                self.text("CIVILIAN" if u.is_civilian else f"{u.uid:02d}", pos[0] + 15, pos[1] - 15, 13)
         selected = world.by_id(self.selected)
         if selected and selected.spec["action"] in (CUT, DROP):
             for order in ([selected.current] if selected.current else []) + list(selected.orders)[:3]:
@@ -823,11 +1003,11 @@ class Game:
         for line in self.objectives():
             y = self.wrap(line, x + 18, y, 264, 15, INK)
         money = "Unlimited" if self.sim.budget is None else f"${self.sim.budget - self.sim.spent:,.0f}"
-        self.text(f"Resources  {money}", x + 18, 225, 17, TEAL)
-        self.button(f"Buy units  /  {st['pending']} inbound", (x + 18, 255, 262, 34), "dispatch")
+        self.text(f"Resources  {money}", x + 18, 245, 17, TEAL)
+        self.button(f"Buy units  /  {st['pending']} inbound", (x + 18, 275, 262, 34), "dispatch")
         for index, (key, title) in enumerate((("all", "All"), ("ground", "Ground"), ("air", "Aircraft"))):
             self.button(
-                title, (x + 16 + index * 90, 297, 86, 28), f"roster:{key}", active=self.roster_filter == key
+                title, (x + 16 + index * 90, 317, 86, 28), f"roster:{key}", active=self.roster_filter == key
             )
         if self.sim.world.pending:
             arrival = min(self.sim.world.pending, key=lambda a: a.at)
@@ -835,12 +1015,12 @@ class Game:
             self.text(
                 f"Inbound: {UNITS[arrival.utype]['label']} {eta}s" + (" / paused" if self.paused else ""),
                 x + 18,
-                329,
+                349,
                 13,
                 ORANGE,
             )
         else:
-            self.text("Select a card to command", x + 18, 329, 13, MUTED)
+            self.text("Select a card to command", x + 18, 349, 13, MUTED)
         roster = [
             u
             for u in self.sim.world.units
@@ -850,9 +1030,9 @@ class Game:
             and (self.roster_filter == "all" or u.is_air == (self.roster_filter == "air"))
         ]
         panel_y = h - 337
-        visible = max(1, (panel_y - 348 - 30) // 50)
+        visible = max(1, (panel_y - 368 - 30) // 50)
         self.roster_scroll = min(self.roster_scroll, max(0, len(roster) - visible))
-        y = 348
+        y = 368
         for u in roster[self.roster_scroll : self.roster_scroll + visible]:
             self.button("", (x + 16, y, 266, 44), f"unit:{u.uid}", active=u.uid == self.selected)
             self.text(u.label, x + 25, y + 5, 15)
@@ -910,7 +1090,12 @@ class Game:
                 260,
                 17,
             )
-        self.screen.blit(pygame.transform.scale(mini, self.minimap.size), self.minimap)
+        if self._minimap_cache is None or self._minimap_cache[0] != (self.map_layer.stamp, self.minimap.size):
+            self._minimap_cache = (
+                (self.map_layer.stamp, self.minimap.size),
+                pygame.transform.scale(mini, self.minimap.size),
+            )
+        self.screen.blit(self._minimap_cache[1], self.minimap)
         self.screen.set_clip(self.minimap)
         vr = pygame.Rect(
             self.minimap.x + self.cam[0] / self.sim.grid.w * self.minimap.w,
@@ -935,16 +1120,18 @@ class Game:
         y = self.viewport.bottom + 12
         self.button("Fit / Home", (18, y, 100, 32), "fit")
         self.button("Map: " + str(OVERLAYS[self.overlay] or "terrain"), (126, y, 140, 32), "overlay")
-        for i, speed in enumerate((1, 3, 8)):
+        for i, speed in enumerate(SPEEDS):
             self.button(f"{speed}x", (280 + i * 50, y, 44, 32), f"speed:{speed}", active=self.speed == speed)
         if self.sandbox:
             for i, tool in enumerate(("ignite", "water", "terrain")):
                 self.button(
-                    tool.title(), (448 + i * 85, y, 80, 32), f"tool:{tool}", active=self.editor_tool == tool
+                    tool.title(), (498 + i * 85, y, 80, 32), f"tool:{tool}", active=self.editor_tool == tool
                 )
-            self.button(TERRAIN.names[self.brush], (705, y, 130, 32), "brush")
+            self.button(TERRAIN.names[self.brush], (755, y, 130, 32), "brush")
         else:
-            self.text("RIGHT-DRAG  line / drop    SHIFT  queue    WASD  pan", 448, y + 7, 13, MUTED)
+            self.text(
+                "RIGHT-DRAG  line / drop    SHIFT  queue / fast pan    WASD  pan", 498, y + 7, 13, MUTED
+            )
         if self.sim.messages:
             msg = self.sim.messages[-1]
             self.wrap(
@@ -954,6 +1141,7 @@ class Game:
                 self.viewport.w - 20,
                 15,
                 MUTED,
+                max_lines=2,
             )
         if self.paused and not self.modal:
             pygame.draw.rect(self.screen, BG, (self.viewport.centerx - 94, 106, 188, 33), border_radius=4)
@@ -974,15 +1162,17 @@ class Game:
         if self.modal == "briefing":
             self.text("INCIDENT BRIEFING", x, y, 15, ORANGE)
             self.text(self.sim.scenario.name, x, y + 35, 32)
-            bottom = self.wrap(self.sim.scenario.briefing, x, y + 94, 644, 20, INK)
+            bottom = self.wrap(self.sim.scenario.briefing, x, y + 94, 644, 20, INK, max_lines=5)
             for line in self.objectives():
-                bottom = self.wrap("• " + line, x, bottom + 10, 644, 17, TEAL)
-            tip = (
-                "Buy a helicopter, select it, then click a hiker. Hold Shift to queue more pickups. Right-click inside the green rescue zone to unload."
-                if self.mission == 1
-                else "Buy your fleet, then select a card in the roster. Right-click to move or attack. Right-drag a line with crews to cut a firebreak, or with aircraft to drop water. Pause any time to plan."
+                bottom = self.wrap("• " + line, x, bottom + 6, 644, 17, TEAL, max_lines=1)
+            self.wrap(
+                self.briefing_tip(),
+                x,
+                min(max(bottom + 18, y + 275), rect.bottom - 170),
+                644,
+                15,
+                max_lines=4,
             )
-            self.wrap(tip, x, max(bottom + 25, y + 275), 644, 17)
             self.button("OPEN MAP TO PLAN / ENTER", (x, rect.bottom - 78, 652, 46), "begin", True)
         elif self.modal == "help":
             self.text("FIELD GUIDE", x, y, 32)
@@ -993,25 +1183,27 @@ class Game:
                 ),
                 (
                     "CUT LINES & AIR DROPS",
-                    "Select Aircraft, then a card. Right-drag a curve: circles show the payload-limited swath. Esc cancels. Planes exit to reload.",
+                    "Right-drag a curve: circles show the payload-limited swath. Esc cancels. Planes exit to reload. "
+                    "Dozers and engines travel at road speed on highways and gravel; the planner routes them along roads.",
                 ),
                 (
                     "RESCUE",
-                    "Select a helicopter, click a hiker. Shift-click queues pickups. Right-click the green safe zone to unload.",
+                    "Select a helicopter, click a civilian. Shift-click queues pickups. Right-click the green safe zone to unload.",
                 ),
                 (
                     "WATER & RESOURCES",
                     "B buys units. Planning purchases are ready immediately; later purchases show a countdown. Hose teams need a lake or engine.",
                 ),
                 (
-                    "CAMERA & SAVES",
-                    "Wheel zooms, WASD or middle-drag pans, Home fits map. Space pauses. F6 saves; F7 loads. F5 exports replay.",
+                    "CAMERA, SPEED & SAVES",
+                    "Wheel zooms, WASD pans (Shift for fast), middle-drag pans, Home fits map, minimap click jumps. "
+                    "1-4 set 1x/3x/8x/16x. Space pauses. F6 saves; F7 loads. F5 exports replay.",
                 ),
             ]
-            yy = y + 65
+            yy = y + 60
             for title, body in lines:
                 self.text(title, x, yy, 13, ORANGE)
-                yy = self.wrap(body, x, yy + 22, 644, 17) + 16
+                yy = self.wrap(body, x, yy + 20, 644, 15, max_lines=3) + 8
             self.button("Back", (x, rect.bottom - 64, 652, 36), "close")
         elif self.modal == "dispatch":
             self.text("RESOURCE DISPATCH", x, y, 32)
@@ -1077,7 +1269,7 @@ class Game:
     def draw(self):
         self.buttons = []
         self.screen.fill(BG)
-        if self.page == "menu":
+        if self.page == "menu" or self.sim is None:
             self.draw_menu()
         else:
             self.draw_game()
@@ -1104,15 +1296,19 @@ class Game:
             return f"{unit.state} {amount}%"
         return unit.state.replace("_", " ")
 
+    # ---- per frame ----------------------------------------------------------------------------
+
     def update(self, dt):
-        if self.page != "game" or self.modal:
+        if self.page != "game" or self.modal or self.sim is None:
             return
         keys = pygame.key.get_pressed()
-        self.cam[0] += (keys[pygame.K_d] - keys[pygame.K_a]) * dt * 350 / self.zoom
-        self.cam[1] += (keys[pygame.K_s] - keys[pygame.K_w]) * dt * 350 / self.zoom
+        pan = 600 * (3 if keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT] else 1)
+        self.cam[0] += (keys[pygame.K_d] - keys[pygame.K_a]) * dt * pan / self.zoom
+        self.cam[1] += (keys[pygame.K_s] - keys[pygame.K_w]) * dt * pan / self.zoom
         if not self.paused and self.sim.outcome == RUNNING:
             self.acc += min(dt, 0.1) * NORMAL_TICKS_PER_SECOND * self.speed
             n = int(self.acc)
+            budget = time.monotonic() + 0.05  # never spend more than this per frame stepping
             for _ in range(n):
                 self.previous_positions = {u.uid: (u.x, u.y) for u in self.sim.world.units}
                 reloading = {u.uid for u in self.sim.world.units if u.is_plane and u.state == "RELOADING"}
@@ -1126,18 +1322,18 @@ class Game:
                     if u.uid in reloading and u.tank >= u.capacity:
                         self.say(f"{u.label}: fully loaded and ready for another run.")
                 self.acc -= 1
+                if time.monotonic() > budget:
+                    self.acc = min(self.acc, 1.0)  # fall behind gracefully instead of freezing the frame
+                    break
         self.clamp_camera()
         if self.sim.tick - self.auto_tick >= 180:
-            try:
-                save_game(self.sim, "autosave.bbsave")
-            except OSError:
-                pass
+            self.autosave()
             self.auto_tick = self.sim.tick
         if self.sim.outcome != RUNNING and not self.result_saved:
             self.result_saved = True
             self.modal = "result"
             if not self.sandbox:
-                key = MISSIONS[self.mission]
+                key = self.progress_key()
                 score = self.sim.score()["total"]
                 if score > self.progress.get(key, {}).get("score", -1):
                     self.progress[key] = {"score": score, "outcome": self.sim.outcome}
@@ -1158,7 +1354,7 @@ class Game:
             frames += 1
             if max_frames and frames >= max_frames:
                 break
-        if self.page == "game":
+        if self.page == "game" and self.sim is not None:
             try:
                 save_game(self.sim, "autosave.bbsave")
             except OSError:
