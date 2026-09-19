@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from .config import UNITS
 from .scenario import Scenario
 
 
@@ -30,4 +31,14 @@ def expanded_scenario(source: Scenario, scale: int = 3) -> Scenario:
             if key in event:
                 event[key] = {k: v * scale if k in ("x", "y") else v for k, v in event[key].items()}
         scenario.events.append(event)
+    scenario.units = [u for u in scenario.units if UNITS[u["type"]].get("is_civilian")]
+    scenario.budget = source.budget if source.budget is not None else 18000
+    if scenario.available_units == []:
+        scenario.available_units = None
+    scenario.briefing = source.briefing.replace(
+        "No budget: every unit you have is already on scene.", "Choose your response fleet within the budget."
+    )
+    scenario.briefing += (
+        " Start with no crews or aircraft. Open Buy units to assemble your fleet before resuming."
+    )
     return scenario

@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from .config import TERRAIN, UNITS, MoveClass, TerrainType
+from .drops import capacity_length, clip_path, payload_per_cell
 from .fire import BURNING, SMOLDER
 from .pathfinding import build_cost, find_path
 
@@ -536,42 +537,59 @@ class Unit:
                     continue
                 grid.set_terrain(xx, yy, int(TerrainType.FIREBREAK))
 
+    def _advance_drop(self, grid, dt):
+        """Fly and apply payload along each actual curved segment, never a chord."""
+        rate = payload_per_cell(self.spec)
+        budget = min(float(self.spec["speed"]) * dt, self.tank / rate)
+        full_length = capacity_length(self.spec, self.capacity)
+        while self.path and budget > 1e-8:
+            target = self.path[0]
+            distance = math.dist((self.x, self.y), target)
+            if distance < 1e-8:
+                self.path.pop(0)
+                continue
+            step = min(distance, budget)
+            ox, oy = self.x, self.y
+            self.x += (target[0] - self.x) * step / distance
+            self.y += (target[1] - self.y) * step / distance
+            grid.apply_line(
+                ox,
+                oy,
+                self.x,
+                self.y,
+                float(self.spec["drop_width"]),
+                self.spec.get("drop_agent", "water"),
+                float(self.spec.get("drop_strength", 0.7)) * step / full_length * 6,
+            )
+            self.tank = max(0, self.tank - step * rate)
+            budget -= step
+            if step >= distance - 1e-8:
+                self.path.pop(0)
+        return not self.path or self.tank <= 1e-8
+
     def _do_drop(self, grid, o, dt, world) -> None:
-        spec = self.spec
         if len(o.points) < 2:
             self._finish()
             return
-        p0, p1 = o.points[0], o.points[1]
-        if self.tank <= 0.0:
+        if self.tank <= 1e-8:
             self._auto_reload(grid, o, world)
             return
         if self.drop_phase == 0:
             if not self.path:
-                self.path = [(int(round(p0[0])), int(round(p0[1])))]
+                o.points = clip_path(o.points, capacity_length(self.spec, self.tank))
+                self.path = [tuple(o.points[0])]
             if self._advance(grid, dt):
                 self.drop_phase = 1
-                self.path = [(int(round(p1[0])), int(round(p1[1])))]
+                self.path = [tuple(p) for p in o.points[1:]]
                 self.say("beginning drop")
             self.state = "MOVING"
             return
-        if self.drop_phase == 1:
-            self.state = "WORKING"
-            ox, oy = self.x, self.y
-            done = self._advance(grid, dt)
-            width = float(spec["drop_width"])
-            agent = spec.get("drop_agent", "water")
-            strength = float(spec.get("drop_strength", 0.7))
-            seg = math.hypot(self.x - ox, self.y - oy)
-            total = max(1.0, math.hypot(p1[0] - p0[0], p1[1] - p0[1]))
-            grid.apply_line(ox, oy, self.x, self.y, width, agent, strength * (seg / total) * 6.0)
-            self.tank -= self.capacity * (seg / total)
-            if done or self.tank <= 0:
-                self.drop_phase = 2
-                self.say("drop complete")
-                self.tank = max(0.0, self.tank)
-                self._finish()
-                if self.tank <= 0.0 or self.spec.get("reload_at_base"):
-                    self._auto_reload(grid, None, world)
+        self.state = "WORKING"
+        if self._advance_drop(grid, dt):
+            self.say("drop complete")
+            self._finish()
+            if self.tank <= 1e-8:
+                self._auto_reload(grid, None, world)
 
     def _auto_reload(self, grid, resume: Order | None, world) -> None:
         if self.spec.get("reload_at_base"):
@@ -590,20 +608,22 @@ class Unit:
             self.orders.appendleft(Order(resume.kind, resume.target, list(resume.points)))
         self._reset_order_state()
 
-    def _plane_exit(self, grid, direction=1):
-        edge = grid.w + 12 if direction >= 0 else -12
-        self.current = Order(REFILL, target=(edge, self.y), auto=True)
-        self.path = [(edge, self.y)]
-        self.reload_timer = float(self.spec["reload_seconds"])
+    def _plane_exit(self, grid):
+        position = (self.x, self.y)
+        exits = [(-12, self.y), (grid.w + 12, self.y), (self.x, -12), (self.x, grid.h + 12)]
+        exit_point = min(exits, key=lambda p: math.dist(position, p))
+        self.current = Order(REFILL, target=exit_point, auto=True)
+        self.path = [exit_point]
+        self.reload_timer = float(self.spec["reload_seconds"]) * max(0, 1 - self.tank / self.capacity)
         self.state = "EXITING"
 
     def _update_plane(self, grid, dt):
-        """Fixed-wing sorties keep flying until they reach off-map side staging."""
+        """Fixed-wing sorties keep flying until they reach staging beyond the nearest map edge."""
         if self.current is None:
             if self.orders:
                 self._next_order()
-            elif 0 <= self.x < grid.w:
-                self._plane_exit(grid, 1 if self.x >= grid.w / 2 else -1)
+            elif 0 <= self.x < grid.w and 0 <= self.y < grid.h:
+                self._plane_exit(grid)
             else:
                 self.state = "READY"
                 return
@@ -623,42 +643,30 @@ class Unit:
                 self.state = "READY"
             return
         if order.kind == DROP and len(order.points) >= 2:
-            start, end = order.points[:2]
             if self.drop_phase == 0:
                 if not self.path:
-                    self.path = [tuple(start)]
+                    order.points = clip_path(order.points, capacity_length(self.spec, self.tank))
+                    if len(order.points) < 2:
+                        self._plane_exit(grid)
+                        return
+                    self.path = [tuple(order.points[0])]
                 self.state = "INBOUND"
                 if self._advance(grid, dt):
                     self.drop_phase = 1
-                    self.path = [tuple(end)]
+                    self.path = [tuple(p) for p in order.points[1:]]
                 return
             self.state = "DROPPING"
-            ox, oy = self.x, self.y
-            done = self._advance(grid, dt)
-            distance = math.hypot(self.x - ox, self.y - oy)
-            total = max(1, math.dist(start, end))
-            grid.apply_line(
-                ox,
-                oy,
-                self.x,
-                self.y,
-                float(self.spec["drop_width"]),
-                self.spec.get("drop_agent", "water"),
-                float(self.spec.get("drop_strength", 0.7)) * distance / total * 6,
-            )
-            self.tank = max(0, self.tank - self.capacity * distance / total)
-            if done or self.tank <= 0:
-                self.tank = 0
-                self._plane_exit(grid, end[0] - start[0])
+            if self._advance_drop(grid, dt):
+                self._plane_exit(grid)
             return
         if order.kind == MOVE and order.target:
             if not self.path:
                 self.path = [tuple(order.target)]
             self.state = "INBOUND"
             if self._advance(grid, dt):
-                self._plane_exit(grid, 1 if self.x >= grid.w / 2 else -1)
+                self._plane_exit(grid)
             return
-        self._plane_exit(grid, 1 if self.x >= grid.w / 2 else -1)
+        self._plane_exit(grid)
 
     def _do_pickup(self, grid, o, dt, world) -> None:
         target = world.by_id(o.unit_id)

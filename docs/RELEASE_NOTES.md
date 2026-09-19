@@ -1,3 +1,12 @@
+## Backburn v0.5.0 — plan your fleet and draw curved drops
+
+- Aircraft drops follow the route you draw. Coverage circles preview the swath; stroke length is capped to available payload, using the same calculation as the simulation. Short drops conserve unused payload.
+- Escape cancels a drop plan; Shift queues another. Planes choose the nearest of all four map edges for exit and reload.
+- New missions start without response units. Buy a fleet within the mission budget; setup purchases are immediately ready, while later reinforcements retain arrival delays. Civilians and rescue objectives remain.
+- A cleaner roster separates All, Ground and Aircraft, with explicit off-map staged status, clear selection, paging and a Locate control.
+- WASD works at overview zoom and beyond map edges within bounded margins. Off-map aircraft can also be selected directly. Home restores the overview.
+- Existing saves keep their units and map layout; start a new mission for the fleet setup changes.
+
 ## Backburn v0.4.0 — smooth movement and aircraft sorties
 
 - Units animate between simulation ticks without speeding up the fire.
