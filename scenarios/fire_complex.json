@@ -1,0 +1,114 @@
+{
+  "name": "Fire Complex",
+  "briefing": "Three separate fires on one huge map and one budget. Two threaten towns, one is deep in the timber. Decide what you can hold, what you can catch small, and what you have to let go.",
+  "notes": "Authored by tools/author_missions.py (fire_complex). Re-run it after changing the rules.",
+  "seed": 152,
+  "width": 1440,
+  "height": 990,
+  "moisture": 0.1,
+  "wind": {
+    "speed": 6,
+    "bearing": 60,
+    "variable": true
+  },
+  "terrain": {
+    "mode": "world",
+    "params": {
+      "water_level": 0.24,
+      "shrub_level": 0.45,
+      "forest_level": 0.55,
+      "dense_level": 0.72,
+      "feature_cells": 120,
+      "river": true,
+      "highways": 2,
+      "spurs": 6,
+      "towns": 2,
+      "town_size": 14,
+      "ranches": 10,
+      "relief": 70,
+      "town_centers": [
+        [
+          430,
+          300
+        ],
+        [
+          1010,
+          640
+        ]
+      ]
+    }
+  },
+  "elevation": {
+    "mode": "world"
+  },
+  "airbase": [
+    6,
+    6
+  ],
+  "staging": [
+    719,
+    500
+  ],
+  "safe_zone": null,
+  "budget": 22000,
+  "available_units": null,
+  "duration": 5400,
+  "objectives": {
+    "max_structures_lost": 6,
+    "max_area_burned_pct": 30,
+    "win_on_contained": true,
+    "win_on_timeout": true
+  },
+  "events": [
+    {
+      "at": 600,
+      "budget": 6000,
+      "message": "Complex declared: additional funding released"
+    },
+    {
+      "at": 1200,
+      "spawn": {
+        "type": "P3_BOMBER"
+      },
+      "message": "A P-3 has been assigned to the complex"
+    },
+    {
+      "at": 1800,
+      "spawn": {
+        "type": "HOTSHOTS"
+      },
+      "message": "Interagency hotshot crew arriving"
+    },
+    {
+      "at": 2600,
+      "budget": 6000,
+      "message": "Federal cost share approved"
+    },
+    {
+      "at": 3000,
+      "wind": {
+        "speed": 10,
+        "bearing": 30
+      },
+      "message": "Wind shift: north-east push"
+    }
+  ],
+  "ignitions": [
+    {
+      "x": 112,
+      "y": 481,
+      "radius": 1
+    },
+    {
+      "x": 766,
+      "y": 759,
+      "radius": 1
+    },
+    {
+      "x": 649,
+      "y": 146,
+      "radius": 2
+    }
+  ],
+  "units": []
+}

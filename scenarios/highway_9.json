@@ -1,0 +1,136 @@
+{
+  "name": "Highway 9",
+  "briefing": "A long highway corridor with two towns. The road is your anchor and your fastest route: engines and dozers travel it at speed. Expect new roadside starts as traffic keeps moving.",
+  "notes": "Authored by tools/author_missions.py (highway_9). Re-run it after changing the rules.",
+  "seed": 93,
+  "width": 1440,
+  "height": 720,
+  "moisture": 0.1,
+  "wind": {
+    "speed": 8,
+    "bearing": 95,
+    "variable": true
+  },
+  "terrain": {
+    "mode": "world",
+    "params": {
+      "water_level": 0.16,
+      "shrub_level": 0.5,
+      "forest_level": 0.66,
+      "dense_level": 0.85,
+      "feature_cells": 120,
+      "highways": 1,
+      "spurs": 6,
+      "towns": 2,
+      "town_size": 18,
+      "town_radius": 40,
+      "ranches": 10,
+      "roads": [
+        [
+          [
+            -2,
+            400
+          ],
+          [
+            260,
+            380
+          ],
+          [
+            520,
+            360
+          ],
+          [
+            790,
+            330
+          ],
+          [
+            1060,
+            360
+          ],
+          [
+            1300,
+            300
+          ],
+          [
+            1442,
+            290
+          ]
+        ]
+      ],
+      "town_centers": [
+        [
+          520,
+          360
+        ],
+        [
+          1060,
+          360
+        ]
+      ]
+    }
+  },
+  "airbase": [
+    6,
+    6
+  ],
+  "staging": [
+    790,
+    330
+  ],
+  "safe_zone": null,
+  "budget": 20000,
+  "available_units": [
+    "ENGINE",
+    "BRUSH_TRUCK",
+    "BULLDOZER",
+    "HOSE_TEAM",
+    "CUT_TEAM",
+    "HOTSHOTS",
+    "WATER_BOMBER",
+    "RETARDANT_BOMBER"
+  ],
+  "duration": 4200,
+  "objectives": {
+    "max_structures_lost": 6,
+    "win_on_contained": true,
+    "win_on_timeout": true
+  },
+  "events": [
+    {
+      "at": 500,
+      "ignite": {
+        "x": 783,
+        "y": 287,
+        "radius": 1
+      },
+      "message": "Vehicle fire on the shoulder has spread into the grass"
+    },
+    {
+      "at": 1100,
+      "ignite": {
+        "x": 928,
+        "y": 372,
+        "radius": 1
+      },
+      "message": "Second roadside start reported east of town"
+    },
+    {
+      "at": 1300,
+      "budget": 6000,
+      "message": "State highway funds released"
+    }
+  ],
+  "ignitions": [
+    {
+      "x": 204,
+      "y": 394,
+      "radius": 1
+    },
+    {
+      "x": 306,
+      "y": 348,
+      "radius": 1
+    }
+  ],
+  "units": []
+}

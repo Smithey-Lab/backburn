@@ -1,88 +1,91 @@
 {
   "name": "Wall of Fire",
-  "briefing": "Extreme wind, heavy timber, embers flying. Direct attack will fail; anchor on the river and the road, cut wide, and use aircraft to hold the flanks. Lose if more than 45% of the fuel burns.",
-  "notes": "Mission name from the original RTS (brief \u00a75); layout is new. Wind is above the spotting threshold from the start.",
+  "briefing": "Extreme wind, heavy timber, embers flying. Direct attack will fail; anchor on the river and the highway, cut wide, and use aircraft to hold the flanks. Lose if more than 30% of the fuel burns before the weather breaks in ninety minutes.",
+  "notes": "Authored by tools/author_missions.py (wall_of_fire). Re-run it after changing the rules.",
   "seed": 44,
-  "width": 160,
-  "height": 110,
+  "width": 1440,
+  "height": 990,
   "moisture": 0.08,
   "wind": {
     "speed": 12,
-    "bearing": 80
+    "bearing": 80,
+    "variable": true
   },
-  "airbase": [
-    4,
-    4
-  ],
-  "staging": [
-    12,
-    55
-  ],
-  "duration": 2400,
-  "budget": 24000,
   "terrain": {
-    "mode": "generate",
+    "mode": "world",
     "params": {
       "water_level": 0.24,
       "shrub_level": 0.4,
-      "forest_level": 0.48,
+      "forest_level": 0.47,
       "dense_level": 0.6,
-      "roads": 2,
-      "structures": 10
+      "feature_cells": 120,
+      "river": true,
+      "river_width": 5,
+      "highways": 2,
+      "spurs": 4,
+      "towns": 1,
+      "town_size": 12,
+      "ranches": 8,
+      "relief": 90
     }
   },
   "elevation": {
-    "mode": "generate",
-    "relief": 90,
-    "seed": 3
+    "mode": "world"
   },
-  "ignitions": [
-    {
-      "x": 6,
-      "y": 50,
-      "radius": 2
-    },
-    {
-      "x": 8,
-      "y": 62,
-      "radius": 1
-    }
+  "airbase": [
+    6,
+    6
   ],
-  "units": [
-    {
-      "type": "BULLDOZER",
-      "x": 12,
-      "y": 55
-    },
-    {
-      "type": "HOTSHOTS",
-      "x": 14,
-      "y": 55
-    },
-    {
-      "type": "HELICOPTER",
-      "x": 4,
-      "y": 4
-    }
+  "staging": [
+    68,
+    510
   ],
+  "safe_zone": null,
+  "budget": 30000,
+  "available_units": null,
+  "duration": 5400,
   "objectives": {
-    "max_area_burned_pct": 45,
-    "win_on_contained": true
+    "max_area_burned_pct": 30,
+    "win_on_contained": true,
+    "win_on_timeout": true
   },
   "events": [
     {
-      "at": 600,
+      "at": 900,
       "wind": {
         "bearing": 130
       },
       "message": "Frontal passage: wind backing to the south-east"
     },
     {
-      "at": 900,
+      "at": 1400,
       "spawn": {
         "type": "P3_BOMBER"
       },
       "message": "State has assigned a P-3 to your incident"
+    },
+    {
+      "at": 2400,
+      "budget": 8000,
+      "message": "Federal cost share approved"
     }
-  ]
+  ],
+  "ignitions": [
+    {
+      "x": 84,
+      "y": 532,
+      "radius": 2
+    },
+    {
+      "x": 137,
+      "y": 430,
+      "radius": 1
+    },
+    {
+      "x": 176,
+      "y": 543,
+      "radius": 1
+    }
+  ],
+  "units": []
 }

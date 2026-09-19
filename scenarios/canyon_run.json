@@ -1,0 +1,89 @@
+{
+  "name": "Canyon Run",
+  "briefing": "A river canyon with a settlement on the rim. Fire runs uphill fast, and the valley road is the only fast way in. Get crews above the fire before it does, and use aircraft on the slopes.",
+  "notes": "Authored by tools/author_missions.py (canyon_run). Re-run it after changing the rules.",
+  "seed": 61,
+  "width": 1152,
+  "height": 864,
+  "moisture": 0.1,
+  "wind": {
+    "speed": 7,
+    "bearing": 35,
+    "variable": true
+  },
+  "terrain": {
+    "mode": "world",
+    "params": {
+      "water_level": 0.14,
+      "shrub_level": 0.42,
+      "forest_level": 0.52,
+      "dense_level": 0.7,
+      "feature_cells": 110,
+      "river": true,
+      "river_width": 4,
+      "canyon": true,
+      "canyon_grade": 0.38,
+      "relief": 140,
+      "highways": 1,
+      "spurs": 3,
+      "towns": 1,
+      "town_size": 14,
+      "ranches": 6,
+      "town_centers": [
+        [
+          860,
+          180
+        ]
+      ]
+    }
+  },
+  "elevation": {
+    "mode": "world"
+  },
+  "airbase": [
+    6,
+    856
+  ],
+  "staging": [
+    441,
+    316
+  ],
+  "safe_zone": null,
+  "budget": 24000,
+  "available_units": null,
+  "duration": 4200,
+  "objectives": {
+    "max_structures_lost": 4,
+    "win_on_contained": true,
+    "win_on_timeout": true
+  },
+  "events": [
+    {
+      "at": 800,
+      "wind": {
+        "speed": 10
+      },
+      "message": "Up-canyon winds building through the afternoon"
+    },
+    {
+      "at": 1600,
+      "spawn": {
+        "type": "HELICOPTER"
+      },
+      "message": "Mutual aid: a helicopter is inbound"
+    }
+  ],
+  "ignitions": [
+    {
+      "x": 523,
+      "y": 609,
+      "radius": 2
+    },
+    {
+      "x": 477,
+      "y": 632,
+      "radius": 1
+    }
+  ],
+  "units": []
+}

@@ -1,0 +1,136 @@
+{
+  "name": "Ember Storm",
+  "briefing": "A wind-driven fire is bearing down on a town of residents who cannot outrun it. Evacuate them to the shelter (green circle) by helicopter or on foot, hold as many homes as you can, and survive fifty minutes of ember storm.",
+  "notes": "Authored by tools/author_missions.py (ember_storm). Re-run it after changing the rules.",
+  "seed": 131,
+  "width": 1152,
+  "height": 864,
+  "moisture": 0.07,
+  "wind": {
+    "speed": 14,
+    "bearing": 80,
+    "variable": true
+  },
+  "terrain": {
+    "mode": "world",
+    "params": {
+      "water_level": 0.17,
+      "shrub_level": 0.44,
+      "forest_level": 0.6,
+      "dense_level": 0.8,
+      "feature_cells": 110,
+      "highways": 2,
+      "spurs": 4,
+      "towns": 1,
+      "town_size": 26,
+      "town_radius": 46,
+      "ranches": 8,
+      "town_centers": [
+        [
+          760,
+          470
+        ]
+      ]
+    }
+  },
+  "airbase": [
+    6,
+    6
+  ],
+  "staging": [
+    747,
+    493
+  ],
+  "safe_zone": [
+    897,
+    397,
+    14
+  ],
+  "budget": 30000,
+  "available_units": null,
+  "duration": 3000,
+  "objectives": {
+    "rescue_all_civilians": true,
+    "max_civilians_lost": 0,
+    "max_structures_lost": 8,
+    "win_on_contained": true,
+    "win_on_timeout": true
+  },
+  "events": [
+    {
+      "at": 700,
+      "wind": {
+        "speed": 17
+      },
+      "message": "Gusts to 17 m/s: embers crossing every line"
+    },
+    {
+      "at": 1200,
+      "spawn": {
+        "type": "RETARDANT_BOMBER"
+      },
+      "message": "Mutual aid: a retardant bomber is inbound"
+    },
+    {
+      "at": 1900,
+      "wind": {
+        "speed": 9
+      },
+      "message": "Winds easing"
+    }
+  ],
+  "ignitions": [
+    {
+      "x": 343,
+      "y": 486,
+      "radius": 2
+    },
+    {
+      "x": 371,
+      "y": 590,
+      "radius": 2
+    }
+  ],
+  "units": [
+    {
+      "type": "CIVILIAN",
+      "x": 738,
+      "y": 461
+    },
+    {
+      "type": "CIVILIAN",
+      "x": 722,
+      "y": 474
+    },
+    {
+      "type": "CIVILIAN",
+      "x": 763,
+      "y": 450
+    },
+    {
+      "type": "CIVILIAN",
+      "x": 770,
+      "y": 470
+    },
+    {
+      "type": "CIVILIAN",
+      "x": 779,
+      "y": 465
+    },
+    {
+      "type": "CIVILIAN",
+      "x": 766,
+      "y": 498
+    },
+    {
+      "type": "CIVILIAN",
+      "x": 734,
+      "y": 439
+    },
+    {
+      "type": "CIVILIAN",
+      "x": 783,
+      "y": 453
+    }
+  ]
+}

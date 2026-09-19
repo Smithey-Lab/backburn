@@ -1,102 +1,81 @@
 {
   "name": "Prairie Fire",
-  "notes": "Mission name from the original RTS list (brief \u00a75). Layout is new. Grass valley with a lake to the south-west, a river-road crossing, and a small settlement east. Fire starts west with a westerly wind pushing it at the houses.",
+  "briefing": "Grass fire west of the settlement, westerly wind. Hold the highways, protect the houses and the outlying ranches. Choose your response fleet within the budget.",
+  "notes": "Authored by tools/author_missions.py (prairie_fire). Re-run it after changing the rules.",
   "seed": 7,
-  "width": 128,
-  "height": 96,
+  "width": 1152,
+  "height": 864,
   "moisture": 0.12,
   "wind": {
     "speed": 6,
-    "bearing": 90
+    "bearing": 90,
+    "variable": true
+  },
+  "terrain": {
+    "mode": "world",
+    "params": {
+      "water_level": 0.2,
+      "shrub_level": 0.55,
+      "forest_level": 0.68,
+      "dense_level": 0.86,
+      "feature_cells": 110,
+      "highways": 3,
+      "spurs": 4,
+      "towns": 1,
+      "town_size": 16,
+      "town_radius": 36,
+      "ranches": 10,
+      "town_centers": [
+        [
+          700,
+          430
+        ]
+      ]
+    }
   },
   "airbase": [
-    3,
-    3
+    6,
+    6
   ],
-  "duration": 1500,
-  "terrain": {
-    "mode": "generate",
-    "params": {
-      "water_level": 0.26,
-      "shrub_level": 0.5,
-      "forest_level": 0.6,
-      "dense_level": 0.74,
-      "roads": 2,
-      "structures": 12
-    }
-  },
-  "ignitions": [
-    {
-      "x": 14,
-      "y": 40,
-      "radius": 1
-    },
-    {
-      "x": 16,
-      "y": 52,
-      "radius": 0
-    }
+  "staging": [
+    522,
+    494
   ],
-  "units": [
-    {
-      "type": "ENGINE",
-      "x": 58,
-      "y": 8
-    },
-    {
-      "type": "BRUSH_TRUCK",
-      "x": 58,
-      "y": 10
-    },
-    {
-      "type": "HOSE_TEAM",
-      "x": 60,
-      "y": 14
-    },
-    {
-      "type": "CUT_TEAM",
-      "x": 58,
-      "y": 16
-    },
-    {
-      "type": "BULLDOZER",
-      "x": 58,
-      "y": 12
-    },
-    {
-      "type": "HELICOPTER",
-      "x": 4,
-      "y": 4
-    },
-    {
-      "type": "WATER_BOMBER",
-      "x": 3,
-      "y": 3
-    },
-    {
-      "type": "RETARDANT_BOMBER",
-      "x": 3,
-      "y": 3
-    }
-  ],
-  "briefing": "Grass fire west of the settlement, westerly wind. Hold the road, protect the houses. No budget: every unit you have is already on scene.",
+  "safe_zone": null,
+  "budget": 26000,
+  "available_units": null,
+  "duration": 3600,
   "objectives": {
     "max_structures_lost": 6,
-    "win_on_contained": true
+    "win_on_contained": true,
+    "win_on_timeout": true
   },
-  "staging": [
-    58,
-    8
-  ],
   "events": [
     {
-      "at": 420,
+      "at": 600,
       "wind": {
         "speed": 9,
         "bearing": 60
       },
       "message": "Wind veering north-east and strengthening"
+    },
+    {
+      "at": 1500,
+      "budget": 4000,
+      "message": "County released additional funds"
     }
   ],
-  "available_units": []
+  "ignitions": [
+    {
+      "x": 312,
+      "y": 479,
+      "radius": 1
+    },
+    {
+      "x": 224,
+      "y": 444,
+      "radius": 1
+    }
+  ],
+  "units": []
 }

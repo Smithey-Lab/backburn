@@ -1,25 +1,52 @@
 {
   "name": "Refinery Row",
-  "briefing": "An industrial strip along the highway with a grass fire upwind. Structures are the objective and you lose if more than three burn. Buy what you need; retardant ahead of the fire and engines on the road are the tools that work here.",
-  "notes": "Mission name from the original RTS (brief \u00a75); layout is new.",
+  "briefing": "Two industrial strips along the highway with a grass fire upwind. Structures are the objective and you lose if more than five burn. Retardant ahead of the fire and engines on the road are the tools that work here.",
+  "notes": "Authored by tools/author_missions.py (refinery_row). Re-run it after changing the rules.",
   "seed": 33,
-  "width": 128,
-  "height": 80,
+  "width": 1152,
+  "height": 720,
   "moisture": 0.1,
   "wind": {
     "speed": 7,
-    "bearing": 100
+    "bearing": 100,
+    "variable": true
+  },
+  "terrain": {
+    "mode": "world",
+    "params": {
+      "water_level": 0.18,
+      "shrub_level": 0.55,
+      "forest_level": 0.72,
+      "dense_level": 0.9,
+      "feature_cells": 120,
+      "highways": 2,
+      "spurs": 5,
+      "towns": 2,
+      "town_size": 22,
+      "town_radius": 40,
+      "ranches": 6,
+      "town_centers": [
+        [
+          560,
+          360
+        ],
+        [
+          820,
+          300
+        ]
+      ]
+    }
   },
   "airbase": [
-    3,
-    3
+    6,
+    6
   ],
   "staging": [
-    8,
-    40
+    466,
+    480
   ],
-  "duration": 1500,
-  "budget": 12000,
+  "safe_zone": null,
+  "budget": 18000,
   "available_units": [
     "ENGINE",
     "BRUSH_TRUCK",
@@ -29,59 +56,39 @@
     "RETARDANT_BOMBER",
     "WATER_BOMBER"
   ],
-  "terrain": {
-    "mode": "generate",
-    "params": {
-      "water_level": 0.2,
-      "shrub_level": 0.55,
-      "forest_level": 0.7,
-      "dense_level": 0.9,
-      "roads": 2,
-      "structures": 30
-    }
-  },
-  "ignitions": [
-    {
-      "x": 8,
-      "y": 30,
-      "radius": 1
-    },
-    {
-      "x": 10,
-      "y": 50,
-      "radius": 1
-    }
-  ],
-  "units": [
-    {
-      "type": "ENGINE",
-      "x": 8,
-      "y": 40
-    },
-    {
-      "type": "HOSE_TEAM",
-      "x": 10,
-      "y": 42
-    }
-  ],
+  "duration": 3600,
   "objectives": {
-    "max_structures_lost": 3,
-    "win_on_contained": true
+    "max_structures_lost": 5,
+    "win_on_contained": true,
+    "win_on_timeout": true
   },
   "events": [
     {
-      "at": 400,
+      "at": 700,
       "ignite": {
-        "x": 70,
-        "y": 12,
+        "x": 820,
+        "y": 182,
         "radius": 1
       },
       "message": "Spot fire reported north of the highway"
     },
     {
-      "at": 600,
-      "budget": 3000,
+      "at": 1000,
+      "budget": 5000,
       "message": "County released additional funds"
     }
-  ]
+  ],
+  "ignitions": [
+    {
+      "x": 219,
+      "y": 333,
+      "radius": 1
+    },
+    {
+      "x": 127,
+      "y": 282,
+      "radius": 1
+    }
+  ],
+  "units": []
 }

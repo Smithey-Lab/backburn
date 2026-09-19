@@ -1,0 +1,87 @@
+{
+  "name": "Lakeshore Cabins",
+  "briefing": "Cabins ring a large lake with a fire moving in from the north-west shore. Water is everywhere: the fire boat covers the shoreline, helicopters dip from the lake, and engines hold the cabins.",
+  "notes": "Authored by tools/author_missions.py (lakeshore_cabins). Re-run it after changing the rules.",
+  "seed": 85,
+  "width": 1056,
+  "height": 792,
+  "moisture": 0.11,
+  "wind": {
+    "speed": 6,
+    "bearing": 120,
+    "variable": true
+  },
+  "terrain": {
+    "mode": "world",
+    "params": {
+      "water_level": 0.4,
+      "shrub_level": 0.46,
+      "forest_level": 0.54,
+      "dense_level": 0.7,
+      "feature_cells": 300,
+      "highways": 2,
+      "spurs": 6,
+      "towns": 1,
+      "town_size": 8,
+      "ranches": 4,
+      "shore_cabins": 30,
+      "relief": 50
+    }
+  },
+  "elevation": {
+    "mode": "world"
+  },
+  "airbase": [
+    6,
+    6
+  ],
+  "staging": [
+    519,
+    395
+  ],
+  "safe_zone": null,
+  "budget": 22000,
+  "available_units": [
+    "ENGINE",
+    "BRUSH_TRUCK",
+    "FIRE_BOAT",
+    "HOSE_TEAM",
+    "CUT_TEAM",
+    "HELICOPTER",
+    "WATER_BOMBER",
+    "BULLDOZER"
+  ],
+  "duration": 3600,
+  "objectives": {
+    "max_structures_lost": 5,
+    "win_on_contained": true,
+    "win_on_timeout": true
+  },
+  "events": [
+    {
+      "at": 900,
+      "wind": {
+        "bearing": 160
+      },
+      "message": "Lake breeze swinging the fire along the shore"
+    },
+    {
+      "at": 1500,
+      "budget": 4000,
+      "message": "Homeowners' association funds released"
+    }
+  ],
+  "ignitions": [
+    {
+      "x": 340,
+      "y": 489,
+      "radius": 1
+    },
+    {
+      "x": 309,
+      "y": 409,
+      "radius": 1
+    }
+  ],
+  "units": []
+}

@@ -1,0 +1,93 @@
+{
+  "name": "Timber Ridge",
+  "briefing": "Backcountry timber with no roads. Lightning has started one fire and more strikes are expected. Hotshots and smokejumpers walk or fly in; keep the burned area under 20% until the front passes.",
+  "notes": "Authored by tools/author_missions.py (timber_ridge). Re-run it after changing the rules.",
+  "seed": 108,
+  "width": 1152,
+  "height": 864,
+  "moisture": 0.13,
+  "wind": {
+    "speed": 5,
+    "bearing": 70,
+    "variable": true
+  },
+  "terrain": {
+    "mode": "world",
+    "params": {
+      "water_level": 0.2,
+      "shrub_level": 0.34,
+      "forest_level": 0.42,
+      "dense_level": 0.58,
+      "feature_cells": 120,
+      "highways": 0,
+      "spurs": 0,
+      "towns": 0,
+      "ranches": 0,
+      "relief": 180
+    }
+  },
+  "elevation": {
+    "mode": "world"
+  },
+  "airbase": [
+    6,
+    856
+  ],
+  "staging": [
+    79,
+    824
+  ],
+  "safe_zone": null,
+  "budget": 26000,
+  "available_units": [
+    "HOTSHOTS",
+    "SMOKEJUMPERS",
+    "CUT_TEAM",
+    "HELICOPTER",
+    "WATER_BOMBER",
+    "RETARDANT_BOMBER",
+    "P3_BOMBER"
+  ],
+  "duration": 4800,
+  "objectives": {
+    "max_area_burned_pct": 20,
+    "win_on_contained": true,
+    "win_on_timeout": true
+  },
+  "events": [
+    {
+      "at": 500,
+      "ignite": {
+        "x": 622,
+        "y": 477,
+        "radius": 1
+      },
+      "message": "Lightning: second strike confirmed burning"
+    },
+    {
+      "at": 1200,
+      "ignite": {
+        "x": 741,
+        "y": 295,
+        "radius": 1
+      },
+      "message": "Lightning: third start on the ridge"
+    },
+    {
+      "at": 1500,
+      "wind": {
+        "speed": 9,
+        "bearing": 50
+      },
+      "message": "Dry cold front: winds increasing"
+    }
+  ],
+  "ignitions": [
+    {
+      "x": 827,
+      "y": 562,
+      "radius": 1
+    }
+  ],
+  "units": []
+}

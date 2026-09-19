@@ -1,30 +1,48 @@
 {
   "name": "Stranded Hikers",
-  "briefing": "Four hikers are cut off on a forested ridge with a fire below them. Fly them to the trailhead (green circle). Ground crews are limited; the helicopter is your rescue asset first and a water drop second.",
-  "notes": "Mission name from the original RTS (brief \u00a75); layout is new. Elevation makes the fire run uphill toward the ridge.",
+  "briefing": "Six hikers are cut off on a forested ridge with a fire climbing toward them. Fly them to the trailhead (green circle). Ground crews are limited; the helicopter is your rescue asset first and a water drop second.",
+  "notes": "Authored by tools/author_missions.py (stranded_hikers). Re-run it after changing the rules.",
   "seed": 21,
-  "width": 96,
-  "height": 72,
+  "width": 864,
+  "height": 648,
   "moisture": 0.14,
   "wind": {
     "speed": 4,
-    "bearing": 20
+    "bearing": 20,
+    "variable": true
+  },
+  "terrain": {
+    "mode": "world",
+    "params": {
+      "water_level": 0.22,
+      "shrub_level": 0.4,
+      "forest_level": 0.48,
+      "dense_level": 0.64,
+      "feature_cells": 100,
+      "highways": 1,
+      "spurs": 3,
+      "towns": 0,
+      "ranches": 3,
+      "relief": 260
+    }
+  },
+  "elevation": {
+    "mode": "world"
   },
   "airbase": [
-    4,
-    66
+    6,
+    640
   ],
   "staging": [
-    10,
-    66
+    658,
+    635
   ],
   "safe_zone": [
-    12,
-    62,
-    5
+    656,
+    635,
+    12
   ],
-  "duration": 1200,
-  "budget": 6000,
+  "budget": 9000,
   "available_units": [
     "HELICOPTER",
     "HOSE_TEAM",
@@ -32,61 +50,7 @@
     "HOTSHOTS",
     "SMOKEJUMPERS"
   ],
-  "terrain": {
-    "mode": "generate",
-    "params": {
-      "water_level": 0.22,
-      "shrub_level": 0.42,
-      "forest_level": 0.5,
-      "dense_level": 0.66,
-      "roads": 1,
-      "structures": 3
-    }
-  },
-  "elevation": {
-    "mode": "generate",
-    "relief": 120,
-    "seed": 5
-  },
-  "ignitions": [
-    {
-      "x": 40,
-      "y": 60,
-      "radius": 1
-    }
-  ],
-  "units": [
-    {
-      "type": "HELICOPTER",
-      "x": 4,
-      "y": 66
-    },
-    {
-      "type": "HOSE_TEAM",
-      "x": 10,
-      "y": 66
-    },
-    {
-      "type": "CIVILIAN",
-      "x": 44,
-      "y": 18
-    },
-    {
-      "type": "CIVILIAN",
-      "x": 47,
-      "y": 16
-    },
-    {
-      "type": "CIVILIAN",
-      "x": 52,
-      "y": 20
-    },
-    {
-      "type": "CIVILIAN",
-      "x": 49,
-      "y": 24
-    }
-  ],
+  "duration": 2700,
   "objectives": {
     "rescue_all_civilians": true,
     "max_civilians_lost": 0,
@@ -94,11 +58,50 @@
   },
   "events": [
     {
-      "at": 240,
+      "at": 400,
       "wind": {
         "speed": 8
       },
       "message": "Afternoon winds picking up"
+    }
+  ],
+  "ignitions": [
+    {
+      "x": 672,
+      "y": 232,
+      "radius": 1
+    }
+  ],
+  "units": [
+    {
+      "type": "CIVILIAN",
+      "x": 650,
+      "y": 90
+    },
+    {
+      "type": "CIVILIAN",
+      "x": 716,
+      "y": 136
+    },
+    {
+      "type": "CIVILIAN",
+      "x": 677,
+      "y": 98
+    },
+    {
+      "type": "CIVILIAN",
+      "x": 663,
+      "y": 119
+    },
+    {
+      "type": "CIVILIAN",
+      "x": 752,
+      "y": 105
+    },
+    {
+      "type": "CIVILIAN",
+      "x": 680,
+      "y": 129
     }
   ]
 }

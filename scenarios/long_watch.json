@@ -1,0 +1,268 @@
+{
+  "name": "The Long Watch",
+  "briefing": "Survival mode. Starts keep coming all night, the wind keeps turning and the money arrives in small tranches. Keep the burned area under 35% and the town standing for two hours.",
+  "notes": "Authored by tools/author_missions.py (long_watch). Re-run it after changing the rules.",
+  "seed": 177,
+  "width": 1152,
+  "height": 864,
+  "moisture": 0.11,
+  "wind": {
+    "speed": 6,
+    "bearing": 100,
+    "variable": true
+  },
+  "terrain": {
+    "mode": "world",
+    "params": {
+      "water_level": 0.22,
+      "shrub_level": 0.47,
+      "forest_level": 0.58,
+      "dense_level": 0.76,
+      "feature_cells": 110,
+      "highways": 2,
+      "spurs": 5,
+      "towns": 1,
+      "town_size": 16,
+      "ranches": 12,
+      "relief": 60,
+      "town_centers": [
+        [
+          600,
+          440
+        ]
+      ]
+    }
+  },
+  "elevation": {
+    "mode": "world"
+  },
+  "airbase": [
+    6,
+    6
+  ],
+  "staging": [
+    603,
+    462
+  ],
+  "safe_zone": null,
+  "budget": 16000,
+  "available_units": null,
+  "duration": 7200,
+  "objectives": {
+    "max_structures_lost": 8,
+    "max_area_burned_pct": 35,
+    "win_on_contained": true,
+    "win_on_timeout": true
+  },
+  "events": [
+    {
+      "at": 300,
+      "ignite": {
+        "x": 776,
+        "y": 422,
+        "radius": 1
+      },
+      "message": "New start reported (2 of the night)"
+    },
+    {
+      "at": 629,
+      "ignite": {
+        "x": 444,
+        "y": 337,
+        "radius": 1
+      },
+      "message": "New start reported (3 of the night)"
+    },
+    {
+      "at": 900,
+      "budget": 2500,
+      "message": "Overnight funding tranche"
+    },
+    {
+      "at": 1046,
+      "ignite": {
+        "x": 830,
+        "y": 60,
+        "radius": 1
+      },
+      "message": "New start reported (4 of the night)"
+    },
+    {
+      "at": 1200,
+      "wind": {
+        "speed": 8,
+        "bearing": 140
+      },
+      "message": "Wind shift"
+    },
+    {
+      "at": 1476,
+      "ignite": {
+        "x": 295,
+        "y": 460,
+        "radius": 1
+      },
+      "message": "New start reported (5 of the night)"
+    },
+    {
+      "at": 1800,
+      "budget": 2500,
+      "message": "Overnight funding tranche"
+    },
+    {
+      "at": 1865,
+      "ignite": {
+        "x": 256,
+        "y": 672,
+        "radius": 1
+      },
+      "message": "New start reported (6 of the night)"
+    },
+    {
+      "at": 2311,
+      "ignite": {
+        "x": 566,
+        "y": 727,
+        "radius": 1
+      },
+      "message": "New start reported (7 of the night)"
+    },
+    {
+      "at": 2400,
+      "wind": {
+        "speed": 5,
+        "bearing": 220
+      },
+      "message": "Wind shift"
+    },
+    {
+      "at": 2700,
+      "budget": 2500,
+      "message": "Overnight funding tranche"
+    },
+    {
+      "at": 2742,
+      "ignite": {
+        "x": 958,
+        "y": 643,
+        "radius": 1
+      },
+      "message": "New start reported (8 of the night)"
+    },
+    {
+      "at": 3076,
+      "ignite": {
+        "x": 993,
+        "y": 154,
+        "radius": 1
+      },
+      "message": "New start reported (9 of the night)"
+    },
+    {
+      "at": 3461,
+      "ignite": {
+        "x": 237,
+        "y": 158,
+        "radius": 1
+      },
+      "message": "New start reported (10 of the night)"
+    },
+    {
+      "at": 3600,
+      "wind": {
+        "speed": 9,
+        "bearing": 300
+      },
+      "message": "Wind shift"
+    },
+    {
+      "at": 3600,
+      "budget": 2500,
+      "message": "Overnight funding tranche"
+    },
+    {
+      "at": 3860,
+      "ignite": {
+        "x": 676,
+        "y": 200,
+        "radius": 1
+      },
+      "message": "New start reported (11 of the night)"
+    },
+    {
+      "at": 4180,
+      "ignite": {
+        "x": 866,
+        "y": 276,
+        "radius": 1
+      },
+      "message": "New start reported (12 of the night)"
+    },
+    {
+      "at": 4500,
+      "budget": 2500,
+      "message": "Overnight funding tranche"
+    },
+    {
+      "at": 4545,
+      "ignite": {
+        "x": 598,
+        "y": 567,
+        "radius": 1
+      },
+      "message": "New start reported (13 of the night)"
+    },
+    {
+      "at": 4800,
+      "wind": {
+        "speed": 6,
+        "bearing": 40
+      },
+      "message": "Wind shift"
+    },
+    {
+      "at": 4902,
+      "ignite": {
+        "x": 524,
+        "y": 9,
+        "radius": 1
+      },
+      "message": "New start reported (14 of the night)"
+    },
+    {
+      "at": 5374,
+      "ignite": {
+        "x": 1066,
+        "y": 460,
+        "radius": 1
+      },
+      "message": "New start reported (15 of the night)"
+    },
+    {
+      "at": 5400,
+      "budget": 2500,
+      "message": "Overnight funding tranche"
+    },
+    {
+      "at": 6000,
+      "wind": {
+        "speed": 10,
+        "bearing": 100
+      },
+      "message": "Wind shift"
+    },
+    {
+      "at": 6300,
+      "budget": 2500,
+      "message": "Overnight funding tranche"
+    }
+  ],
+  "ignitions": [
+    {
+      "x": 270,
+      "y": 453,
+      "radius": 1
+    }
+  ],
+  "units": []
+}
