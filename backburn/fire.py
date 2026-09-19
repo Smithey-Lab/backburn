@@ -17,6 +17,19 @@ moisture, which is what produces apparent rekindling once that moisture dries.
 Coordinates: arrays are indexed [y, x] with y growing downward (row 0 is the top
 of the map). Wind direction is a compass bearing in degrees the wind is blowing
 TOWARD: 0 = north (up, −y), 90 = east (+x), 180 = south (+y), 270 = west (−x).
+
+Active regions
+--------------
+Every array covers the whole map, but a tick only computes inside a small set of
+bounding boxes ("regions") that together contain every burning and smoldering
+cell (plus one cell of margin, the furthest heat travels per tick) and every wet
+cell (water, retardant or raised moisture, which all decay). Outside them nothing
+can change, so the maths is identical to a full-grid pass while the cost follows
+the size of the fires, not the size of the map. Regions are re-derived from the
+arrays every tick by grouping active 32×32 tiles, so separate fires stay separate
+and merge only when they approach each other. Embers and scripted ignitions that
+land outside every region open a new one. Maps up to 256×256 skip all of this and
+process the whole grid.
 """
 
 from __future__ import annotations
@@ -31,6 +44,10 @@ import numpy as np
 from .config import FIRE, TERRAIN, TerrainType
 
 UNBURNED, BURNING, SMOLDER, COLD = 0, 1, 2, 3
+FULL_GRID_CELLS = 256 * 256  # at or below this size, every tick processes the whole map
+RESCAN_EVERY = 64  # ticks between exact full-map re-derivations of the regions
+TILE = 32  # activity is grouped per tile of this size when regions are derived
+MAX_REGIONS = 12
 
 # 8-neighbour offsets as (dx, dy) and their distance weight.
 _OFFSETS: list[tuple[int, int, float]] = [
@@ -79,6 +96,92 @@ class Ember:
             self.duration = self.ttl
 
 
+Box = tuple[int, int, int, int]  # y0, y1, x0, x1 (half-open)
+
+
+def _union(a: Box | None, b: Box | None) -> Box | None:
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return min(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), max(a[3], b[3])
+
+
+def _mask_box(mask: np.ndarray, oy: int = 0, ox: int = 0) -> Box | None:
+    """Tight bounding box of the True cells of ``mask``, offset into map coordinates."""
+    rows = np.flatnonzero(mask.any(axis=1))
+    if rows.size == 0:
+        return None
+    cols = np.flatnonzero(mask.any(axis=0))
+    return int(rows[0]) + oy, int(rows[-1]) + 1 + oy, int(cols[0]) + ox, int(cols[-1]) + 1 + ox
+
+
+def _mask_regions(mask: np.ndarray, oy: int = 0, ox: int = 0) -> list[Box]:
+    """Bounding boxes of the connected groups of active tiles in ``mask`` (map coordinates)."""
+    h, w = mask.shape
+    th, tw = -(-h // TILE), -(-w // TILE)
+    padded = np.zeros((th * TILE, tw * TILE), bool)
+    padded[:h, :w] = mask
+    tiles = padded.reshape(th, TILE, tw, TILE).any(axis=(1, 3))
+    active = {(int(y), int(x)) for y, x in np.argwhere(tiles)}
+    out: list[Box] = []
+    while active:
+        seed = next(iter(active))
+        stack = [seed]
+        active.discard(seed)
+        ty0 = ty1 = seed[0]
+        tx0 = tx1 = seed[1]
+        while stack:
+            y, x = stack.pop()
+            ty0, ty1, tx0, tx1 = min(ty0, y), max(ty1, y), min(tx0, x), max(tx1, x)
+            for ny in (y - 1, y, y + 1):
+                for nx in (x - 1, x, x + 1):
+                    if (ny, nx) in active:
+                        active.discard((ny, nx))
+                        stack.append((ny, nx))
+        # Tighten from tiles to cells.
+        sub = mask[ty0 * TILE : min(h, (ty1 + 1) * TILE), tx0 * TILE : min(w, (tx1 + 1) * TILE)]
+        box = _mask_box(sub, ty0 * TILE + oy, tx0 * TILE + ox)
+        if box is not None:
+            out.append(box)
+    return out
+
+
+def _overlaps(a: Box, b: Box, gap: int) -> bool:
+    return a[0] < b[1] + gap and b[0] < a[1] + gap and a[2] < b[3] + gap and b[2] < a[3] + gap
+
+
+def _merge_regions(boxes: list[Box], gap: int = 2, limit: int = MAX_REGIONS) -> list[Box]:
+    """Union boxes that come within ``gap`` cells of each other; cap the count by merging
+    the closest pairs. Sorted so processing order is deterministic."""
+    boxes = [b for b in boxes if b[0] < b[1] and b[2] < b[3]]
+    merged = True
+    while merged:
+        merged = False
+        out: list[Box] = []
+        for b in boxes:
+            for i, o in enumerate(out):
+                if _overlaps(b, o, gap):
+                    out[i] = _union(o, b)
+                    merged = True
+                    break
+            else:
+                out.append(b)
+        boxes = out
+    while len(boxes) > limit:
+        best, pair = None, None
+        for i in range(len(boxes)):
+            for j in range(i + 1, len(boxes)):
+                u = _union(boxes[i], boxes[j])
+                grow = (u[1] - u[0]) * (u[3] - u[2])
+                if best is None or grow < best:
+                    best, pair = grow, (i, j)
+        i, j = pair
+        boxes = [b for k, b in enumerate(boxes) if k not in pair] + [_union(boxes[i], boxes[j])]
+        boxes = _merge_regions(boxes, gap, limit + 1) if len(boxes) > limit else boxes
+    return sorted(boxes)
+
+
 class FireGrid:
     """All per-cell state plus the fire-spread step."""
 
@@ -95,6 +198,7 @@ class FireGrid:
         self.rng = np.random.default_rng(seed)
         self.seed = seed
         self.time = 0.0
+        self.version = 0  # bumps whenever fire state or terrain changes (caches key on it)
 
         self.fuel = TERRAIN.fuel[self.terrain].copy()
         self.base_moisture = np.full((self.h, self.w), base_moisture, np.float32)
@@ -124,8 +228,54 @@ class FireGrid:
         self._slope_tabs: list[np.ndarray] | None = None
         self.embers: list[Ember] = []
         self.spot_fires = 0
+        self._tables()
+        # Active-region bookkeeping (see module docstring).
+        self._use_box = self.w * self.h > FULL_GRID_CELLS
+        self._regions: list[Box] = []  # tight boxes around burning/smoldering/wet cells
+        self._pending: list[Box] = []  # boxes written outside the step (ignitions, drops, embers)
+        self._scar: Box | None = None  # any cell that ever burned
+        self._last_boxes: list[Box] = []  # where heat/exposure were written last tick
+        self._ticks = 0
+        self._stats_cache: tuple[int, FireStats] | None = None
+        self.navigator = None  # pathfinding.Navigator, created lazily (avoids an import cycle)
+        self.changed_cells: list[tuple[int, int]] = []  # terrain edits since a renderer last drained them
+        self.changed_all = False
         if elevation is not None:
             self.set_elevation(elevation)
+
+    # ---- cached per-cell terrain tables -------------------------------------------------
+
+    def _tables(self) -> None:
+        T = self.terrain
+        self._fuel_ok = TERRAIN.fuel[T] > 0.01
+        self._ign_rate = TERRAIN.ignition_rate[T]
+        self._burn_rate = TERRAIN.burn_rate[T]
+        self._heat_out = TERRAIN.heat_output[T]
+        self._smolder_time = TERRAIN.smolder_time[T]
+        self._fuel_cells = int((TERRAIN.fuel[T] > 0.02).sum())
+
+    def _table_cell(self, x: int, y: int, ttype: int) -> None:
+        was_fuel = TERRAIN.fuel[self.terrain[y, x]] > 0.02
+        self._fuel_ok[y, x] = TERRAIN.fuel[ttype] > 0.01
+        self._ign_rate[y, x] = TERRAIN.ignition_rate[ttype]
+        self._burn_rate[y, x] = TERRAIN.burn_rate[ttype]
+        self._heat_out[y, x] = TERRAIN.heat_output[ttype]
+        self._smolder_time[y, x] = TERRAIN.smolder_time[ttype]
+        now_fuel = TERRAIN.fuel[ttype] > 0.02
+        self._fuel_cells += int(now_fuel) - int(was_fuel)
+
+    def nav(self):
+        """Per-tick pathfinding cache shared by every unit on this grid."""
+        if self.navigator is None:
+            from .pathfinding import Navigator  # local import: pathfinding imports this module
+
+            self.navigator = Navigator()
+        return self.navigator
+
+    @property
+    def fuel_cells(self) -> int:
+        """Number of cells that hold enough fuel to burn (scored as 'area')."""
+        return self._fuel_cells
 
     # ---- wind ---------------------------------------------------------------
 
@@ -204,6 +354,55 @@ class FireGrid:
         self._slope_tabs = tabs
         return tabs
 
+    # ---- active region ----------------------------------------------------------------
+
+    def _touch(self, y0: int, y1: int, x0: int, x1: int) -> None:
+        """Record that cells in this box were written outside the step (ignitions, drops)."""
+        box = (max(0, y0), min(self.h, y1), max(0, x0), min(self.w, x1))
+        if box[0] < box[1] and box[2] < box[3]:
+            self._pending.append(box)
+
+    def _clamp(self, box: Box | None, margin: int = 0) -> Box | None:
+        if box is None:
+            return None
+        return (
+            max(0, box[0] - margin),
+            min(self.h, box[1] + margin),
+            max(0, box[2] - margin),
+            min(self.w, box[3] + margin),
+        )
+
+    def _activity(self, y0: int, y1: int, x0: int, x1: int) -> np.ndarray:
+        st = self.state[y0:y1, x0:x1]
+        return (
+            (st == BURNING)
+            | (st == SMOLDER)
+            | (self.water[y0:y1, x0:x1] > 0)
+            | (self.retardant[y0:y1, x0:x1] > 0)
+            | (self.moisture[y0:y1, x0:x1] != self.base_moisture[y0:y1, x0:x1])
+        )
+
+    def rescan(self) -> None:
+        """Re-derive every region from the arrays (after direct edits or a load)."""
+        st = self.state
+        self._scar = _mask_box(st != UNBURNED)
+        self._regions = _merge_regions(_mask_regions(self._activity(0, self.h, 0, self.w)))
+        self._pending = []
+        self._stats_cache = None
+
+    def regions(self) -> list[Box]:
+        """Boxes the next tick will process, each with its one-cell margin (whole map on small grids)."""
+        if not self._use_box:
+            return [(0, self.h, 0, self.w)]
+        return [self._clamp(b, 1) for b in _merge_regions(self._regions + self._pending)]
+
+    def active_box(self) -> Box:
+        """Union of the regions, for display and benchmarks."""
+        box = None
+        for b in self.regions():
+            box = _union(box, b)
+        return box or (0, 0, 0, 0)
+
     # ---- external actions ---------------------------------------------------
 
     def ignite(self, x: int, y: int, radius: int = 0) -> int:
@@ -211,17 +410,37 @@ class FireGrid:
         ys, xs = self._disc(x, y, radius)
         m = (self.state[ys, xs] == UNBURNED) & (self.fuel[ys, xs] > 0.01)
         ys, xs = ys[m], xs[m]
-        self.state[ys, xs] = BURNING
-        self.ignited_at[ys, xs] = self.time
+        if len(ys):
+            self.state[ys, xs] = BURNING
+            self.ignited_at[ys, xs] = self.time
+            box = (int(ys.min()), int(ys.max()) + 1, int(xs.min()), int(xs.max()) + 1)
+            self._scar = _union(self._scar, box)
+            self._touch(*box)
+            self.version += 1
+            self._stats_cache = None
         return int(len(ys))
+
+    def extinguish(self, x: int, y: int, radius: int = 1) -> None:
+        """Editor eraser: remove fire without any suppression side effects."""
+        ys, xs = self._disc(x, y, radius)
+        if len(ys):
+            self.state[ys, xs] = UNBURNED
+            self.smolder_timer[ys, xs] = 0.0
+            self._touch(int(ys.min()), int(ys.max()) + 1, int(xs.min()), int(xs.max()) + 1)
+            self.version += 1
+            self._stats_cache = None
 
     def apply_water(self, x: float, y: float, radius: float, amount: float) -> None:
         ys, xs = self._disc(x, y, radius)
-        self.water[ys, xs] = np.minimum(self.water[ys, xs] + amount, 1.5)
+        if len(ys):
+            self.water[ys, xs] = np.minimum(self.water[ys, xs] + amount, 1.5)
+            self._touch(int(ys.min()), int(ys.max()) + 1, int(xs.min()), int(xs.max()) + 1)
 
     def apply_retardant(self, x: float, y: float, radius: float, amount: float) -> None:
         ys, xs = self._disc(x, y, radius)
-        self.retardant[ys, xs] = np.minimum(self.retardant[ys, xs] + amount, 1.0)
+        if len(ys):
+            self.retardant[ys, xs] = np.minimum(self.retardant[ys, xs] + amount, 1.0)
+            self._touch(int(ys.min()), int(ys.max()) + 1, int(xs.min()), int(xs.max()) + 1)
 
     def apply_line(
         self, x0: float, y0: float, x1: float, y1: float, width: float, agent: str, amount: float
@@ -258,22 +477,39 @@ class FireGrid:
         self._structures_total = n
 
     def structures_lost(self) -> int:
-        if self._labels is None or self._structures_total == 0:
+        if self._labels is None:
+            self._relabel_structures()
+        if self._structures_total == 0:
             return 0
-        hot = (self.state != UNBURNED) & (self._labels > 0)
-        return int(len(np.unique(self._labels[hot])))
+        box = (0, self.h, 0, self.w) if not self._use_box else self._scar
+        if box is None:
+            return 0
+        y0, y1, x0, x1 = box
+        st = self.state[y0:y1, x0:x1]
+        lab = self._labels[y0:y1, x0:x1]
+        hot = (st != UNBURNED) & (lab > 0)
+        return int(len(np.unique(lab[hot])))
 
     def set_terrain(self, x: int, y: int, ttype: int, reset_fuel: bool = True) -> None:
         if not (0 <= x < self.w and 0 <= y < self.h):
             return
         was = int(self.terrain[y, x])
+        if was == ttype and (not reset_fuel or self.fuel[y, x] == TERRAIN.fuel[ttype]):
+            return
         if was == int(TerrainType.STRUCTURE) or ttype == int(TerrainType.STRUCTURE):
             self._labels = None  # relabel lazily
+        self._table_cell(x, y, ttype)
         self.terrain[y, x] = ttype
         if reset_fuel:
             self.fuel[y, x] = TERRAIN.fuel[ttype]
         if TERRAIN.fuel[ttype] <= 0.02 and self.state[y, x] == BURNING:
             self.state[y, x] = COLD
+        self.version += 1
+        self._stats_cache = None
+        if len(self.changed_cells) < 4096:
+            self.changed_cells.append((x, y))
+        else:
+            self.changed_all = True
 
     def _disc(self, x: float, y: float, radius: float) -> tuple[np.ndarray, np.ndarray]:
         r = int(math.ceil(radius))
@@ -290,21 +526,51 @@ class FireGrid:
 
     def step(self, dt: float = 1.0) -> None:
         self._update_weather()
-        h, w = self.h, self.w
-        T = self.terrain
-        st = self.state
+        self.version += 1
+        self._stats_cache = None
+        self._ticks += 1
+        if self._use_box and self._ticks % RESCAN_EVERY == 0:
+            self.rescan()
+        boxes = self.regions()
+        # Clear the display fields where they were written last tick.
+        for ly0, ly1, lx0, lx1 in self._last_boxes:
+            self.heat[ly0:ly1, lx0:lx1] = 0.0
+            self.exposure[ly0:ly1, lx0:lx1] = 0.0
+        self._last_boxes = boxes
+        self._pending = []
+        found: list[Box] = []
+        for box in boxes:
+            found.extend(self._step_box(box, dt))
+        self._spot_land(dt)
+        if self._use_box:
+            self._regions = _merge_regions(found + self._pending)
+            self._pending = []
+        self.time += dt
+
+    def _step_box(self, box: Box, dt: float) -> list[Box]:
+        """One tick of the fire model inside ``box``; returns the tight regions left active."""
+        y0, y1, x0, x1 = box
+        h, w = y1 - y0, x1 - x0
+        st = self.state[y0:y1, x0:x1]
+        fuel = self.fuel[y0:y1, x0:x1]
+        water = self.water[y0:y1, x0:x1]
+        retardant = self.retardant[y0:y1, x0:x1]
+        moisture = self.moisture[y0:y1, x0:x1]
+        smolder_timer = self.smolder_timer[y0:y1, x0:x1]
+        fuel_ok = self._fuel_ok[y0:y1, x0:x1]
+        heat_out = self._heat_out[y0:y1, x0:x1]
         burning = st == BURNING
         smold = st == SMOLDER
 
         # 1. Heat each cell emits this tick.
         emitted = np.zeros((h, w), np.float32)
-        emitted[burning] = TERRAIN.heat_output[T[burning]]
+        emitted[burning] = heat_out[burning]
         if FIRE["smolder_ignites_neighbours"] and smold.any():
             frac = float(FIRE["smolder_heat_fraction"])
-            st_time = TERRAIN.smolder_time[T[smold]]
-            ratio = np.where(st_time > 0, self.smolder_timer[smold] / np.maximum(st_time, 1e-6), 0.0)
-            emitted[smold] = TERRAIN.heat_output[T[smold]] * frac * ratio
-        self.heat = emitted  # display/debug field
+            st_time = self._smolder_time[y0:y1, x0:x1][smold]
+            ratio = np.where(st_time > 0, smolder_timer[smold] / np.maximum(st_time, 1e-6), 0.0)
+            emitted[smold] = heat_out[smold] * frac * ratio
+        self.heat[y0:y1, x0:x1] = emitted  # display/debug field
 
         # 2. Exposure: shifted sums of emitted heat, wind-weighted per direction.
         wf = self._wind_factor_table()
@@ -318,127 +584,141 @@ class FireGrid:
             if dx and dy:
                 # Diagonal neighbour heat cannot squeeze between touching
                 # non-fuel cells in a completed road, cut line or water barrier.
-                side_a = self.terrain[ys:ye, xs - dx : xe - dx]
-                side_b = self.terrain[ys - dy : ye - dy, xs:xe]
-                open_corner = (TERRAIN.fuel[side_a] > 0.01) & (TERRAIN.fuel[side_b] > 0.01)
-                src_view = src_view * open_corner
+                side_a = fuel_ok[ys:ye, xs - dx : xe - dx]
+                side_b = fuel_ok[ys - dy : ye - dy, xs:xe]
+                src_view = src_view * (side_a & side_b)
             if slope is not None:
-                tgt_view += src_view * wf[i] * slope[i][ys:ye, xs:xe]
+                tgt_view += src_view * wf[i] * slope[i][y0 + ys : y0 + ye, x0 + xs : x0 + xe]
             else:
                 tgt_view += src_view * wf[i]
-
-        self.exposure = exposure
+        self.exposure[y0:y1, x0:x1] = exposure
 
         # 3. Hazard → probability.
-        dryness = np.clip(1.0 - self.moisture, float(FIRE["dryness_floor"]), 1.0)
-        suppression = np.clip(self.water, 0.0, 1.0)
+        dryness = np.clip(1.0 - moisture, float(FIRE["dryness_floor"]), 1.0)
+        suppression = np.clip(water, 0.0, 1.0)
         hazard = (
             exposure
             * float(FIRE["exposure_scale"])
-            * TERRAIN.ignition_rate[T]
+            * self._ign_rate[y0:y1, x0:x1]
             * dryness
-            * np.clip(1.0 - float(FIRE["retardant_strength"]) * self.retardant, 0.0, 1.0)
+            * np.clip(1.0 - float(FIRE["retardant_strength"]) * retardant, 0.0, 1.0)
             * (1.0 - suppression)
         )
         p = 1.0 - np.exp(-hazard * dt)
         roll = self.rng.random((h, w), dtype=np.float32)
-        can_ignite = (st == UNBURNED) & (self.fuel > 0.01)
+        can_ignite = (st == UNBURNED) & (fuel > 0.01)
         new_fire = can_ignite & (roll < p)
 
         # 4. Burning cells consume fuel; run out → smolder.
         if burning.any():
-            self.fuel[burning] -= TERRAIN.burn_rate[T[burning]] * dt
-            out = burning & (self.fuel <= 0.0)
-            self.fuel[out] = 0.0
+            fuel[burning] -= self._burn_rate[y0:y1, x0:x1][burning] * dt
+            out = burning & (fuel <= 0.0)
+            fuel[out] = 0.0
             st[out] = SMOLDER
-            self.smolder_timer[out] = TERRAIN.smolder_time[T[out]]
+            smolder_timer[out] = self._smolder_time[y0:y1, x0:x1][out]
 
         # 5. Water extinguishes burning cells (back to UNBURNED, wet, less fuel).
         thr = float(FIRE["water_extinguish_threshold"])
-        put_out = (st == BURNING) & (self.water >= thr)
+        put_out = (st == BURNING) & (water >= thr)
         if put_out.any():
             st[put_out] = UNBURNED
-            self.moisture[put_out] = np.minimum(
-                1.0, self.moisture[put_out] + float(FIRE["water_moisture_gain"])
-            )
-            self.water[put_out] *= 0.5
-            self.fuel[put_out] *= 0.85
+            moisture[put_out] = np.minimum(1.0, moisture[put_out] + float(FIRE["water_moisture_gain"]))
+            water[put_out] *= 0.5
+            fuel[put_out] *= 0.85
 
         # 6. Smolder cools; water kills smolder quickly.
         smold = st == SMOLDER
         if smold.any():
-            self.smolder_timer[smold] -= dt * (1.0 + 6.0 * np.clip(self.water[smold], 0, 1))
-            cold = smold & (self.smolder_timer <= 0)
+            smolder_timer[smold] -= dt * (1.0 + 6.0 * np.clip(water[smold], 0, 1))
+            cold = smold & (smolder_timer <= 0)
             st[cold] = COLD
-            self.smolder_timer[cold] = 0.0
+            smolder_timer[cold] = 0.0
 
         # 7. Apply ignitions last so they don't burn on the tick they start.
         st[new_fire] = BURNING
-        self.ignited_at[new_fire] = self.time
+        self.ignited_at[y0:y1, x0:x1][new_fire] = self.time
 
         # 7b. Ember spotting: strong wind lofts embers from hot fuels to land downwind.
-        self._spot(burning, dryness, dt)
+        self._spot_launch(burning, dt, y0, x0)
 
         # 8. Field decay: water evaporates, moisture returns toward base, retardant fades.
-        self.moisture = np.maximum(self.moisture, np.minimum(1.0, self.water * 0.4 + self.moisture))
-        self.water -= self.water * float(FIRE["water_decay"]) * dt
-        self.water[self.water < 1e-3] = 0.0
-        self.moisture -= (self.moisture - self.base_moisture) * float(FIRE["moisture_dry_rate"]) * dt
-        self.retardant -= self.retardant * float(FIRE["retardant_decay"]) * dt
-        self.retardant[self.retardant < 1e-3] = 0.0
+        base = self.base_moisture[y0:y1, x0:x1]
+        np.maximum(moisture, np.minimum(1.0, water * 0.4 + moisture), out=moisture)
+        water -= water * float(FIRE["water_decay"]) * dt
+        water[water < 1e-3] = 0.0
+        moisture -= (moisture - base) * float(FIRE["moisture_dry_rate"]) * dt
+        settled = np.abs(moisture - base) < 1e-4
+        moisture[settled] = base[settled]
+        retardant -= retardant * float(FIRE["retardant_decay"]) * dt
+        retardant[retardant < 1e-3] = 0.0
 
-        self.time += dt
+        if not self._use_box:
+            return []
+        # 9. Tighten: what is still active here, grouped so separate fires stay separate.
+        scar = _mask_box(st != UNBURNED, y0, x0)
+        self._scar = _union(self._scar, scar)
+        return _mask_regions(self._activity(y0, y1, x0, x1), y0, x0)
 
     # ---- spotting ---------------------------------------------------------------
 
-    def _spot(self, burning: np.ndarray, dryness: np.ndarray, dt: float) -> None:
-        """Land embers that are due, then launch new ones.
+    def _spot_land(self, dt: float) -> None:
+        """Land embers whose flight time is up; landing on unburned fuel may ignite it."""
+        if not self.embers:
+            return
+        keep = []
+        lx, ly = [], []
+        for e in self.embers:
+            e.ttl -= 1
+            if e.ttl <= 0:
+                lx.append(e.x1)
+                ly.append(e.y1)
+            else:
+                keep.append(e)
+        self.embers = keep
+        if not lx:
+            return
+        xs = np.rint(lx).astype(int)
+        ys = np.rint(ly).astype(int)
+        inside = (xs >= 0) & (xs < self.w) & (ys >= 0) & (ys < self.h)
+        xs, ys = xs[inside], ys[inside]
+        if len(xs) == 0:
+            return
+        dryness = np.clip(1.0 - self.moisture[ys, xs], float(FIRE["dryness_floor"]), 1.0)
+        p_ign = (
+            float(FIRE.get("spot_ignite", 0.5))
+            * dryness
+            * np.clip(1.0 - float(FIRE["retardant_strength"]) * self.retardant[ys, xs], 0, 1)
+            * (1.0 - np.clip(self.water[ys, xs], 0, 1))
+        )
+        roll = self.rng.random(len(xs))
+        ok = (self.state[ys, xs] == UNBURNED) & (self.fuel[ys, xs] > 0.01) & (roll < p_ign)
+        if ok.any():
+            ys, xs = ys[ok], xs[ok]
+            self.state[ys, xs] = BURNING
+            self.ignited_at[ys, xs] = self.time
+            self.spot_fires += int(len(ys))
+            box = (int(ys.min()), int(ys.max()) + 1, int(xs.min()), int(xs.max()) + 1)
+            self._scar = _union(self._scar, box)
+            self._touch(*box)
 
-        Launch: each burning cell with heat_output ≥ spot_min_heat launches with
-        probability spot_rate·(wind − spot_min_wind)·heat·dt. Landing point is
-        downwind at spot_dist_base + wind·spot_dist_gain cells, with jitter.
-        Landing: unburned fuel cell ignites with probability spot_ignite·dryness·(1 − retardant).
+    def _spot_launch(self, burning: np.ndarray, dt: float, oy: int, ox: int) -> None:
+        """Launch new embers from burning cells in the active box.
+
+        Each burning cell with heat_output ≥ spot_min_heat launches with probability
+        spot_rate·(wind − spot_min_wind)·heat·dt. Landing point is downwind at
+        spot_dist_base + wind·spot_dist_gain cells, with jitter.
         """
         min_wind = float(FIRE.get("spot_min_wind", 8.0))
-        # Land embers whose flight time is up.
-        if self.embers:
-            keep = []
-            lx, ly = [], []
-            for e in self.embers:
-                e.ttl -= 1
-                if e.ttl <= 0:
-                    lx.append(e.x1)
-                    ly.append(e.y1)
-                else:
-                    keep.append(e)
-            self.embers = keep
-            if lx:
-                xs = np.rint(lx).astype(int)
-                ys = np.rint(ly).astype(int)
-                inside = (xs >= 0) & (xs < self.w) & (ys >= 0) & (ys < self.h)
-                xs, ys = xs[inside], ys[inside]
-                p_ign = (
-                    float(FIRE.get("spot_ignite", 0.5))
-                    * dryness[ys, xs]
-                    * np.clip(1.0 - float(FIRE["retardant_strength"]) * self.retardant[ys, xs], 0, 1)
-                    * (1.0 - np.clip(self.water[ys, xs], 0, 1))
-                )
-                roll = self.rng.random(len(xs))
-                ok = (self.state[ys, xs] == UNBURNED) & (self.fuel[ys, xs] > 0.01) & (roll < p_ign)
-                if ok.any():
-                    self.state[ys[ok], xs[ok]] = BURNING
-                    self.ignited_at[ys[ok], xs[ok]] = self.time
-                    self.spot_fires += int(ok.sum())
         if self.wind_speed < min_wind or not burning.any():
             return
         rate = float(FIRE.get("spot_rate", 0.002))
         min_heat = float(FIRE.get("spot_min_heat", 0.9))
         ys, xs = np.nonzero(burning)
-        heat = TERRAIN.heat_output[self.terrain[ys, xs]]
+        heat = TERRAIN.heat_output[self.terrain[ys + oy, xs + ox]]
         hot = heat >= min_heat
         if not hot.any():
             return
-        ys, xs, heat = ys[hot], xs[hot], heat[hot]
+        ys, xs, heat = ys[hot] + oy, xs[hot] + ox, heat[hot]
         p = rate * (self.wind_speed - min_wind) * heat * dt
         launch = self.rng.random(len(ys)) < p
         if not launch.any():
@@ -458,11 +738,14 @@ class FireGrid:
 
     def is_out(self) -> bool:
         """True when nothing is burning, nothing is smoldering hot enough to re-ignite, and no embers fly."""
-        return (
-            (not (self.state == BURNING).any())
-            and (not self.embers)
-            and (self.smolder_timer.max() <= 0.0 or not (self.state == SMOLDER).any())
-        )
+        if self.embers:
+            return False
+        s = self.stats()
+        if s.burning:
+            return False
+        if s.smoldering == 0:
+            return True
+        return all(bool(self.smolder_timer[y0:y1, x0:x1].max() <= 0.0) for y0, y1, x0, x1 in self.regions())
 
     # ---- (de)serialisation for savegames ------------------------------------------
 
@@ -494,6 +777,7 @@ class FireGrid:
             "weather_base_bearing": self.weather_base_bearing,
             "weather_epoch": self.weather_epoch,
             "embers": [e.__dict__ for e in self.embers],
+            "ticks": self._ticks,
         }
 
     @classmethod
@@ -528,29 +812,51 @@ class FireGrid:
         g.spot_fires = int(meta.get("spot_fires", 0))
         g.rng.bit_generator.state = meta["rng_state"]
         g.embers = [Ember(**e) for e in meta.get("embers", [])]
+        g._ticks = int(meta.get("ticks", round(g.time)))
         g._relabel_structures()
+        g._tables()
+        g.rescan()
+        g._last_boxes = _mask_regions(g.heat != 0)
         return g
 
     # ---- introspection ------------------------------------------------------
 
     def stats(self) -> FireStats:
-        st = self.state
-        burned = (st == SMOLDER) | (st == COLD)
+        if self._stats_cache is not None and self._stats_cache[0] == self.version:
+            return self._stats_cache[1]
         if self._labels is None:
             self._relabel_structures()
+        if self._use_box:
+            burning = smoldering = 0
+            for hy0, hy1, hx0, hx1 in self.regions():
+                hot = self.state[hy0:hy1, hx0:hx1]
+                burning += int((hot == BURNING).sum())
+                smoldering += int((hot == SMOLDER).sum())
+            if self._scar is None:
+                burned = 0
+            else:
+                sy0, sy1, sx0, sx1 = self._scar
+                scar = self.state[sy0:sy1, sx0:sx1]
+                burned = int(((scar == SMOLDER) | (scar == COLD)).sum())
+        else:
+            st = self.state
+            burning = int((st == BURNING).sum())
+            smoldering = int((st == SMOLDER).sum())
+            burned = int(((st == SMOLDER) | (st == COLD)).sum())
         lost = self.structures_lost()
-        fuel_cells = TERRAIN.fuel[self.terrain] > 0.02
-        frac = float(burned.sum() / max(1, fuel_cells.sum()))
-        return FireStats(
-            int((st == BURNING).sum()),
-            int((st == SMOLDER).sum()),
-            int(burned.sum()),
+        frac = float(burned / max(1, self._fuel_cells))
+        s = FireStats(
+            burning,
+            smoldering,
+            burned,
             self._structures_total,
             lost,
             frac,
             self.spot_fires,
             len(self.embers),
         )
+        self._stats_cache = (self.version, s)
+        return s
 
     def state_hash(self) -> str:
         m = hashlib.sha256()
