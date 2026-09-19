@@ -489,6 +489,8 @@ class Unit:
         tx, ty = pts[self.cut_index]
         d = math.hypot(tx - self.x, ty - self.y)
         if d < 0.5:
+            if self.cut_index > 0:
+                self._cut_cell(grid, *self.cell)
             self.cut_index += 1
             self.path = []
             self.arrived = False
@@ -890,7 +892,10 @@ class World:
         if grid is not None and u.is_plane:
             u.x = -12.0 if u.uid % 2 else grid.w + 12.0
             u.y = min(max(y, 1), grid.h - 2)
-            u.state = "READY"
+            u.tank = 0.0
+            u.reload_timer = float(u.spec["reload_seconds"])
+            u.current = Order(REFILL, target=(u.x, u.y), auto=True)
+            u.state = "RELOADING"
         self._next_uid += 1
         self.units.append(u)
         return u

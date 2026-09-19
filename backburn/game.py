@@ -14,8 +14,9 @@ import pygame
 from . import __version__
 from .art import details, terrain_surface, unit_icon
 from .campaign import expanded_scenario
-from .config import TERRAIN, UNITS
+from .config import FIRE, TERRAIN, UNITS
 from .drops import capacity_length, clip_path, coverage_centers, length, payload_per_cell, smooth_path
+from .fire import bearing_to_vector
 from .render import OVERLAYS
 from .scenario import load_scenario
 from .sim import RUNNING, Simulation
@@ -329,7 +330,14 @@ class Game:
                     self.roster_filter = "air" if unit.is_air else "ground"
                     self.roster_scroll = 0
                     self.latest_arrival = unit.uid
-                    self.say(f"{unit.label} purchased and selected. Ready for orders.")
+                    self.say(
+                        f"{unit.label}: "
+                        + (
+                            "loading off-map. Draw a drop to queue it."
+                            if unit.is_plane
+                            else "purchased and selected. Ready for orders."
+                        )
+                    )
         elif action.startswith("tool:"):
             tool = action.split(":")[1]
             self.editor_tool = None if self.editor_tool == tool else tool
@@ -512,8 +520,13 @@ class Game:
     def draw_coverage(self, points, unit, color, fill=False):
         if len(points) < 2:
             return
-        radius = max(2, round(float(unit.spec["drop_width"]) * self.zoom / 2))
-        centers = coverage_centers(points, max(0.5, float(unit.spec["drop_width"]) * 0.55))
+        width = (
+            2 * (int(unit.spec["cut_width"]) // 2) + 1
+            if unit.spec["action"] == CUT
+            else float(unit.spec["drop_width"])
+        )
+        radius = max(2, round(width * self.zoom / 2))
+        centers = coverage_centers(points, max(1, width * 1.1))
         if fill:
             shade = pygame.Surface(self.viewport.size, pygame.SRCALPHA)
             for point in centers:
@@ -551,6 +564,8 @@ class Game:
             if length(points) < 0.5:
                 self.say("No payload available. Wait for a refill before drawing a drop.")
                 return
+        elif kind == CUT:
+            points = smooth_path(list(drawn or [p0]) + [p1])
         elif u.is_plane and self.order_mode != MOVE:
             self.say("Right-drag a curved drop zone. Escape cancels the plan.")
             return
@@ -668,7 +683,7 @@ class Game:
             x, y, r = world.safe_zone
             pygame.draw.circle(scr, TEAL, self.to_screen(x, y), int(r * self.zoom), 2)
             self.text("RESCUE ZONE", *self.to_screen(x - r, y + r + 1), 13, INK)
-        for pos, label in [(world.airbase, "AIR BASE"), (world.staging, "STAGING")]:
+        for pos, label in [(world.staging, "STAGING")]:
             x, y = self.to_screen(*pos)
             pygame.draw.rect(scr, (217, 206, 157), (x - 10, y - 10, 20, 20), 2)
             self.text(label, x + 14, y - 8, 13)
@@ -705,9 +720,9 @@ class Game:
             if u.uid == self.selected or u.is_civilian:
                 self.text("HIKER" if u.is_civilian else f"{u.uid:02d}", pos[0] + 15, pos[1] - 15, 13)
         selected = world.by_id(self.selected)
-        if selected and selected.spec["action"] == DROP:
+        if selected and selected.spec["action"] in (CUT, DROP):
             for order in ([selected.current] if selected.current else []) + list(selected.orders)[:3]:
-                if order.kind == DROP:
+                if order.kind in (CUT, DROP):
                     self.draw_coverage(order.points, selected, (93, 133, 137))
         if self.drag is not None:
             end = self.clamp_point(self.to_world(pygame.mouse.get_pos()))
@@ -721,17 +736,63 @@ class Game:
                 self.text(
                     label, self.viewport.x + 16, self.viewport.bottom - 56, 17, ORANGE if limited else INK
                 )
+            elif selected and selected.spec["action"] == CUT and self.order_mode != MOVE:
+                points = smooth_path(self.drag_points + [end])
+                self.draw_coverage(points, selected, ORANGE, fill=True)
+                self.text(
+                    "FIREBREAK / continuous cleared line", self.viewport.x + 16, self.viewport.bottom - 56, 17
+                )
             else:
                 pygame.draw.line(scr, INK, self.to_screen(*self.drag), self.to_screen(*end), 2)
+                if selected and self.order_mode != MOVE and selected.spec.get("spray_radius", 0):
+                    pygame.draw.circle(
+                        scr, TEAL, self.to_screen(*end), round(selected.spec["spray_radius"] * self.zoom), 2
+                    )
             self.text(
                 "Release to confirm / Shift to queue / Esc to cancel",
                 self.viewport.x + 16,
                 self.viewport.bottom - 30,
                 15,
             )
+        for ember in self.sim.grid.embers[:200]:
+            progress = max(0, min(1, (ember.duration - ember.ttl + self.acc) / max(1, ember.duration)))
+            x = ember.x0 + (ember.x1 - ember.x0) * progress
+            y = ember.y0 + (ember.y1 - ember.y0) * progress
+            tip = self.to_screen(x, y)
+            tail = self.to_screen(x - (ember.x1 - ember.x0) * 0.12, y - (ember.y1 - ember.y0) * 0.12)
+            pygame.draw.line(scr, (230, 137, 57), tail, tip, 1)
+            pygame.draw.circle(scr, (255, 225, 136), tip, 2)
+        self.draw_wind()
         scr.set_clip(None)
         pygame.draw.rect(scr, LINE, self.viewport, 1)
         return surf
+
+    def draw_wind(self):
+        grid = self.sim.grid
+        rect = pygame.Rect(self.viewport.right - 226, self.viewport.top + 12, 214, 94)
+        pygame.draw.rect(self.screen, BG, rect, border_radius=6)
+        center = (rect.x + 37, rect.y + 43)
+        pygame.draw.circle(self.screen, LINE, center, 24, 1)
+        self.text("N", center[0] - 4, rect.y + 1, 13, MUTED)
+        dx, dy = bearing_to_vector(grid.wind_bearing)
+        start = (center[0] - dx * 15, center[1] - dy * 15)
+        tip = (center[0] + dx * 21, center[1] + dy * 21)
+        tint = ORANGE if grid.wind_speed >= FIRE["spot_min_wind"] else TEAL
+        pygame.draw.line(self.screen, tint, start, tip, 3)
+        pygame.draw.polygon(
+            self.screen,
+            tint,
+            [
+                tip,
+                (tip[0] - dx * 10 - dy * 6, tip[1] - dy * 10 + dx * 6),
+                (tip[0] - dx * 10 + dy * 6, tip[1] - dy * 10 - dx * 6),
+            ],
+        )
+        direction = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")[int((grid.wind_bearing + 22.5) // 45) % 8]
+        self.text(f"TOWARD {direction}", rect.x + 75, rect.y + 11, 13, MUTED)
+        self.text(f"{grid.wind_speed:.1f} m/s", rect.x + 75, rect.y + 31, 20, INK)
+        risk = "Embers can cross lines" if grid.wind_speed >= FIRE["spot_min_wind"] else "Low ember risk"
+        self.text(risk, rect.x + 12, rect.y + 70, 13, tint)
 
     def draw_game(self):
         w, h = self.screen.get_size()
@@ -955,7 +1016,7 @@ class Game:
         elif self.modal == "dispatch":
             self.text("RESOURCE DISPATCH", x, y, 32)
             self.text(
-                "Planning purchases are ready immediately. Later reinforcements take the shown time.",
+                "Crews are ready during planning. Planes start empty and load off-map after Resume.",
                 x,
                 y + 48,
                 15,
@@ -966,7 +1027,11 @@ class Game:
                 spec = UNITS[kind]
                 col = i % 2
                 row = i // 2
-                delay = "ready now" if self.sim.tick == 0 else f"{spec.get('arrival_seconds', 0):.0f}s"
+                delay = (
+                    (f"load {spec['reload_seconds']:.0f}s" if spec.get("reload_at_base") else "ready now")
+                    if self.sim.tick == 0
+                    else f"{spec.get('arrival_seconds', 0):.0f}s"
+                )
                 label = f"{spec.get('label', kind)} ${spec.get('cost', 0):,.0f} / {delay}"
                 self.button(
                     label,
@@ -1031,7 +1096,7 @@ class Game:
     @staticmethod
     def resource_status(unit):
         if unit.state == "RELOADING":
-            return f"RELOAD {math.ceil(unit.reload_timer)}s"
+            return f"LOAD {math.ceil(unit.reload_timer)}s / {unit.tank / unit.capacity:.0%}"
         if unit.is_plane and unit.state == "READY":
             return "READY 100%"
         if unit.capacity:
