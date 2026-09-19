@@ -1,4 +1,11 @@
-"""Original procedural pixel art. Visual randomness never touches the simulation."""
+"""Original procedural pixel art. Visual randomness never touches the simulation.
+
+The map is drawn once into a full-size surface (one pixel per cell) and then patched
+in place: each tick only the regions the fire model touched, plus any cells crews
+changed, are recomputed. Trees, buildings, flames and smoke are drawn per frame from
+pre-rendered sprites for the current zoom, restricted to the visible window, and
+batched with ``Surface.blits`` so a screen full of forest costs a few milliseconds.
+"""
 
 import math
 
@@ -24,29 +31,95 @@ PALETTE = np.array(
     ],
     dtype=np.uint8,
 )
+FIRE_C = np.array((248, 116, 42), np.float32)
+FLICKER_C = np.array((255, 219, 113), np.float32)
+COLD_C = np.array((42, 43, 39), np.float32)
+SMOLDER_C = np.array((85, 54, 38), np.float32)
+WATER_C = np.array([96, 190, 207], np.float32)
+RETARDANT_C = np.array([185, 67, 74], np.float32)
+
+
+def map_rgb(sim, overlay=None, box=None) -> np.ndarray:
+    """RGB for the map (or the ``box`` = (y0, y1, x0, x1) part of it) in the game's palette."""
+    g = sim.grid
+    y0, y1, x0, x1 = box if box is not None else (0, g.h, 0, g.w)
+    if overlay:
+        return base_rgb(sim, overlay, box)
+    terrain = g.terrain[y0:y1, x0:x1]
+    state = g.state[y0:y1, x0:x1]
+    rgb = PALETTE[terrain].astype(np.float32)
+    ys, xs = np.indices(terrain.shape)
+    ys += y0
+    xs += x0
+    grain = ((xs * 37 + ys * 19 + xs * ys * 7) % 13 - 6)[..., None]
+    rgb += grain
+    rgb[state == COLD] = COLD_C
+    rgb[state == SMOLDER] = SMOLDER_C
+    fire = state == BURNING
+    if fire.any():
+        rgb[fire] = FIRE_C
+        flicker = fire & ((xs * 7 + ys * 11 + int(g.time)) % 3 == 0)
+        rgb[flicker] = FLICKER_C
+    water = np.clip(g.water[y0:y1, x0:x1], 0, 1)[..., None] * 0.45
+    retardant = np.clip(g.retardant[y0:y1, x0:x1], 0, 1)[..., None] * 0.65
+    rgb = rgb * (1 - water) + WATER_C * water
+    rgb = rgb * (1 - retardant) + RETARDANT_C * retardant
+    return np.clip(rgb, 0, 255).astype(np.uint8)
 
 
 def terrain_surface(sim, overlay=None):
-    g = sim.grid
-    if overlay:
-        rgb = base_rgb(sim, overlay)
-    else:
-        rgb = PALETTE[g.terrain].astype(float)
-        ys, xs = np.indices(g.terrain.shape)
-        grain = ((xs * 37 + ys * 19 + xs * ys * 7) % 13 - 6)[..., None]
-        rgb += grain
-        rgb[g.state == COLD] = (42, 43, 39)
-        rgb[g.state == SMOLDER] = (85, 54, 38)
-        fire = g.state == BURNING
-        rgb[fire] = (248, 116, 42)
-        flicker = fire & ((xs * 7 + ys * 11 + int(g.time)) % 3 == 0)
-        rgb[flicker] = (255, 219, 113)
-        water = np.clip(g.water, 0, 1)[..., None] * 0.45
-        retardant = np.clip(g.retardant, 0, 1)[..., None] * 0.65
-        rgb = rgb * (1 - water) + np.array([96, 190, 207]) * water
-        rgb = rgb * (1 - retardant) + np.array([185, 67, 74]) * retardant
-        rgb = np.clip(rgb, 0, 255).astype(np.uint8)
-    return pygame.surfarray.make_surface(np.transpose(rgb, (1, 0, 2)))
+    """Whole-map surface; used for menu previews and by the map layer's first draw."""
+    return pygame.surfarray.make_surface(np.transpose(map_rgb(sim, overlay), (1, 0, 2)))
+
+
+def thumbnail(terrain: np.ndarray, size=(320, 240)) -> pygame.Surface:
+    """A small preview of a terrain array (no simulation needed)."""
+    step = max(1, min(terrain.shape[1] // size[0], terrain.shape[0] // size[1]))
+    small = terrain[::step, ::step]
+    surf = pygame.surfarray.make_surface(np.transpose(PALETTE[small], (1, 0, 2)))
+    return pygame.transform.smoothscale(surf, size)
+
+
+class MapLayer:
+    """Full-map surface kept current by patching only what changed."""
+
+    def __init__(self, sim, overlay=None):
+        self.sim = sim
+        self.overlay = overlay
+        self.version = None
+        self.surface = terrain_surface(sim, overlay)
+        self.version = sim.grid.version
+        self.stamp = 0  # bumps whenever the surface changes (cache key for scaled copies)
+        sim.grid.changed_cells.clear()
+        sim.grid.changed_all = False
+
+    def update(self, sim, overlay=None):
+        """Bring the surface up to date with the simulation. Cheap when nothing changed."""
+        g = sim.grid
+        if sim is not self.sim or overlay != self.overlay or g.changed_all or g.w != self.surface.get_width():
+            self.__init__(sim, overlay)
+            return self.surface
+        if g.version == self.version:
+            return self.surface
+        boxes = list(g._last_boxes) + list(g._pending)
+        if g.changed_cells:
+            xs = [c[0] for c in g.changed_cells]
+            ys = [c[1] for c in g.changed_cells]
+            boxes.append((min(ys), max(ys) + 1, min(xs), max(xs) + 1))
+            g.changed_cells.clear()
+        if overlay == "elevation":
+            boxes = []  # static shading; state changes are not shown in this overlay
+        for y0, y1, x0, x1 in boxes:
+            y0, x0 = max(0, y0), max(0, x0)
+            y1, x1 = min(g.h, y1), min(g.w, x1)
+            if y0 >= y1 or x0 >= x1:
+                continue
+            rgb = map_rgb(sim, overlay, (y0, y1, x0, x1))
+            sub = self.surface.subsurface(pygame.Rect(x0, y0, x1 - x0, y1 - y0))
+            pygame.surfarray.blit_array(sub, np.transpose(rgb, (1, 0, 2)))
+        self.version = g.version
+        self.stamp += 1
+        return self.surface
 
 
 def tree_cells(terrain, state):
@@ -56,51 +129,129 @@ def tree_cells(terrain, state):
     return np.nonzero(placement & ((terrain == T.FOREST) | (terrain == T.DENSE_FOREST)) & (state == 0))
 
 
-def details(screen, sim, to_screen, zoom, viewport, clock):
-    g = sim.grid
+class Sprites:
+    """Pre-rendered map decorations for a given zoom."""
 
-    def visible(ys, xs):
-        # Transform and cull in NumPy; avoid Python work for off-screen map cells.
-        ox, oy = to_screen(0, 0)
-        sx = np.rint(ox + xs * zoom).astype(int)
-        sy = np.rint(oy + ys * zoom).astype(int)
-        margin = zoom * 3
-        mask = (
-            (sx >= viewport.left - margin)
-            & (sx <= viewport.right + margin)
-            & (sy >= viewport.top - margin)
-            & (sy <= viewport.bottom + margin)
-        )
-        return zip(xs[mask].tolist(), ys[mask].tolist(), sx[mask].tolist(), sy[mask].tolist())
+    def __init__(self):
+        self.cache = {}
 
-    if zoom >= 5:
-        ys, xs = tree_cells(g.terrain, g.state)
-        r = max(2, int(zoom * 0.65))
-        for _, _, sx, sy in visible(ys, xs):
-            pygame.draw.line(screen, (47, 56, 39), (sx, sy), (sx, sy + r), 2)
+    def key(self, zoom):
+        return int(round(zoom * 4))
+
+    def tree(self, zoom):
+        k = ("tree", self.key(zoom))
+        if k not in self.cache:
+            r = max(2, int(zoom * 0.65))
+            surf = pygame.Surface((2 * r + 4, 2 * r + 4), pygame.SRCALPHA)
+            cx, cy = r + 2, r + 2
+            pygame.draw.line(surf, (47, 56, 39), (cx, cy), (cx, cy + r), 2)
             pygame.draw.polygon(
-                screen, (39, 72, 49), [(sx, sy - r), (sx - r, sy + r // 2), (sx + r, sy + r // 2)]
+                surf, (39, 72, 49), [(cx, cy - r), (cx - r, cy + r // 2), (cx + r, cy + r // 2)]
             )
-            pygame.draw.line(screen, (69, 107, 64), (sx, sy - r), (sx - r, sy + r // 2))
-        ys, xs = np.nonzero((g.terrain == T.STRUCTURE) & (g.state == 0))
-        for _, _, sx, sy in visible(ys, xs):
+            pygame.draw.line(surf, (69, 107, 64), (cx, cy - r), (cx - r, cy + r // 2))
+            self.cache[k] = (surf, cx, cy)
+        return self.cache[k]
+
+    def building(self, zoom):
+        k = ("bldg", self.key(zoom))
+        if k not in self.cache:
             r = max(2, int(zoom * 0.45))
-            pygame.draw.rect(screen, (43, 49, 40), (sx - r + 2, sy - r + 2, r * 2, r * 2))
-            pygame.draw.rect(screen, (209, 190, 151), (sx - r, sy - r, r * 2, r * 2))
-            pygame.draw.polygon(screen, (132, 76, 52), [(sx - r - 1, sy), (sx, sy - r - 2), (sx + r + 1, sy)])
-    ys, xs = np.nonzero(g.state == BURNING)
-    for x, y, sx, sy in visible(ys[::2], xs[::2]):
-        r = max(2, int(zoom * 0.65))
-        rise = int((clock * 12 + x * 3 + y) % 10)
-        pygame.draw.polygon(
-            screen,
-            (255, 181, 66),
-            [(sx - r, sy + r // 2), (sx + 1, sy - r - rise // 3), (sx + r, sy + r // 2)],
+            surf = pygame.Surface((2 * r + 6, 2 * r + 6), pygame.SRCALPHA)
+            cx, cy = r + 3, r + 3
+            pygame.draw.rect(surf, (43, 49, 40), (cx - r + 2, cy - r + 2, r * 2, r * 2))
+            pygame.draw.rect(surf, (209, 190, 151), (cx - r, cy - r, r * 2, r * 2))
+            pygame.draw.polygon(surf, (132, 76, 52), [(cx - r - 1, cy), (cx, cy - r - 2), (cx + r + 1, cy)])
+            self.cache[k] = (surf, cx, cy)
+        return self.cache[k]
+
+    def flame(self, zoom, frame):
+        k = ("flame", self.key(zoom), frame)
+        if k not in self.cache:
+            r = max(2, int(zoom * 0.65))
+            rise = frame
+            surf = pygame.Surface((2 * r + 4, 2 * r + 8), pygame.SRCALPHA)
+            cx, cy = r + 2, r + 5
+            pygame.draw.polygon(
+                surf,
+                (255, 181, 66),
+                [(cx - r, cy + r // 2), (cx + 1, cy - r - rise // 3), (cx + r, cy + r // 2)],
+            )
+            self.cache[k] = (surf, cx, cy)
+        return self.cache[k]
+
+    def smoke(self, zoom, frame):
+        k = ("smoke", self.key(zoom), frame)
+        if k not in self.cache:
+            r = max(2, int(zoom * 0.65))
+            rad = r + frame // 3
+            surf = pygame.Surface((r * 5 + 10, r * 5 + 20), pygame.SRCALPHA)
+            pygame.draw.circle(surf, (45, 47, 44, 90), (r * 2 + 5, r * 2 + 5), rad)
+            self.cache[k] = (surf, r * 2 - frame, r * 4 + frame)
+        return self.cache[k]
+
+
+SPRITES = Sprites()
+MAX_DECOR = 9000  # per frame: trees are thinned beyond this rather than dropping frames
+
+
+def details(screen, sim, to_screen, zoom, viewport, clock, cam=None):
+    """Draw trees, buildings, flames and smoke inside the viewport."""
+    g = sim.grid
+    ox, oy = to_screen(0, 0)
+    # Window of cells that can touch the viewport.
+    x0 = max(0, int(math.floor((viewport.left - ox) / zoom)) - 2)
+    y0 = max(0, int(math.floor((viewport.top - oy) / zoom)) - 2)
+    x1 = min(g.w, int(math.ceil((viewport.right - ox) / zoom)) + 3)
+    y1 = min(g.h, int(math.ceil((viewport.bottom - oy) / zoom)) + 3)
+    if x0 >= x1 or y0 >= y1:
+        return
+    terrain = g.terrain[y0:y1, x0:x1]
+    state = g.state[y0:y1, x0:x1]
+    ys, xs = np.indices(terrain.shape)
+    ys += y0
+    xs += x0
+
+    def screen_xy(mask):
+        sy, sx = np.nonzero(mask)
+        gx, gy = xs[sy, sx], ys[sy, sx]
+        return gx, gy, np.rint(ox + gx * zoom).astype(int), np.rint(oy + gy * zoom).astype(int)
+
+    clip = screen.get_clip()
+    if zoom >= 5:
+        placement = ((xs * 73) ^ (ys * 151)) % 5 < 2
+        trees = placement & ((terrain == T.FOREST) | (terrain == T.DENSE_FOREST)) & (state == 0)
+        _, _, sx, sy = screen_xy(trees)
+        if len(sx) > MAX_DECOR:
+            keep = np.linspace(0, len(sx) - 1, MAX_DECOR).astype(int)
+            sx, sy = sx[keep], sy[keep]
+        sprite, cx, cy = SPRITES.tree(zoom)
+        screen.blits(
+            [(sprite, (int(x) - cx, int(y) - cy)) for x, y in zip(sx.tolist(), sy.tolist())], doreturn=False
         )
-        if (x + y) % 5 == 0:
-            smoke = pygame.Surface((r * 5 + 10, r * 5 + 20), pygame.SRCALPHA)
-            pygame.draw.circle(smoke, (45, 47, 44, 90), (r * 2 + 5, r * 2 + 5), r + rise // 3)
-            screen.blit(smoke, (sx - r * 2 + rise, sy - r * 4 - rise))
+        _, _, sx, sy = screen_xy((terrain == T.STRUCTURE) & (state == 0))
+        sprite, cx, cy = SPRITES.building(zoom)
+        screen.blits(
+            [(sprite, (int(x) - cx, int(y) - cy)) for x, y in zip(sx.tolist(), sy.tolist())], doreturn=False
+        )
+    gx, gy, sx, sy = screen_xy(state == BURNING)
+    if len(sx):
+        # Every other burning cell gets a flame; every fifth of those a smoke puff.
+        gx, gy, sx, sy = gx[::2], gy[::2], sx[::2], sy[::2]
+        if len(sx) > MAX_DECOR // 2:
+            keep = np.linspace(0, len(sx) - 1, MAX_DECOR // 2).astype(int)
+            gx, gy, sx, sy = gx[keep], gy[keep], sx[keep], sy[keep]
+        rise = ((clock * 12 + gx * 3 + gy) % 10).astype(int)
+        flames = []
+        smokes = []
+        for x, y, r, fx, fy in zip(sx.tolist(), sy.tolist(), rise.tolist(), gx.tolist(), gy.tolist()):
+            sprite, cx, cy = SPRITES.flame(zoom, r)
+            flames.append((sprite, (x - cx, y - cy)))
+            if (fx + fy) % 5 == 0:
+                sprite, dx, dy = SPRITES.smoke(zoom, r)
+                smokes.append((sprite, (x - dx, y - dy)))
+        screen.blits(flames, doreturn=False)
+        screen.blits(smokes, doreturn=False)
+    screen.set_clip(clip)
 
 
 def unit_icon(screen, kind, pos, color, selected=False, clock=0, size=12, heading=None):
@@ -152,6 +303,12 @@ def unit_icon(screen, kind, pos, color, selected=False, clock=0, size=12, headin
             ],
         )
         pygame.draw.line(screen, (240, 229, 195), (x, y - r), (x, y + r), 2)
+    elif kind == "FIRE_BOAT":
+        pygame.draw.polygon(
+            screen, (29, 35, 32), [(x - 9, y - 4), (x + 9, y - 4), (x + 6, y + 8), (x - 6, y + 8)]
+        )
+        pygame.draw.polygon(screen, color, [(x - 7, y - 3), (x + 7, y - 3), (x + 5, y + 6), (x - 5, y + 6)])
+        pygame.draw.rect(screen, (223, 222, 183), (x - 3, y - 8, 6, 6))
     else:
         pygame.draw.rect(screen, (29, 35, 32), (x - 8, y - 10, 16, 21), border_radius=3)
         pygame.draw.rect(screen, color, (x - 6, y - 10, 12, 21), border_radius=2)

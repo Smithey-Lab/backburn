@@ -32,31 +32,34 @@ HEAT_TINT = np.array([255, 80, 0], np.uint8)
 OVERLAYS = (None, "heat", "moisture", "elevation")
 
 
-def base_rgb(sim: Simulation, overlay: str | None = None) -> np.ndarray:
-    """Map layer as an (h, w, 3) uint8 array. overlay: None | 'heat' | 'moisture' | 'elevation'."""
+def base_rgb(sim: Simulation, overlay: str | None = None, box=None) -> np.ndarray:
+    """Map layer as an (h, w, 3) uint8 array. overlay: None | 'heat' | 'moisture' | 'elevation'.
+    ``box`` = (y0, y1, x0, x1) renders only that part of the map."""
     g = sim.grid
-    rgb = TERRAIN.color[g.terrain].copy()
+    y0, y1, x0, x1 = box if box is not None else (0, g.h, 0, g.w)
+    terrain = g.terrain[y0:y1, x0:x1]
+    rgb = TERRAIN.color[terrain].copy()
     if overlay == "elevation" and np.ptp(g.elevation) > 0:
-        e = (g.elevation - g.elevation.min()) / max(1e-6, float(np.ptp(g.elevation)))
+        e = (g.elevation[y0:y1, x0:x1] - g.elevation.min()) / max(1e-6, float(np.ptp(g.elevation)))
         rgb = (rgb * (0.55 + 0.45 * e[..., None])).astype(np.uint8)
-    st = g.state
+    st = g.state[y0:y1, x0:x1]
     rgb[st == COLD] = COLD_C
     rgb[st == SMOLDER] = SMOLDER_C
     b = st == BURNING
     if b.any():
         ys, xs = np.nonzero(b)
-        flick = ((xs * 7 + ys * 13 + int(g.time * 3)) % 3) == 0
+        flick = (((xs + x0) * 7 + (ys + y0) * 13 + int(g.time * 3)) % 3) == 0
         rgb[ys[flick], xs[flick]] = FIRE_HOT
         rgb[ys[~flick], xs[~flick]] = FIRE_MID
-    w = np.clip(g.water, 0, 1)[..., None]
+    w = np.clip(g.water[y0:y1, x0:x1], 0, 1)[..., None]
     rgb = (rgb * (1 - 0.55 * w) + WATER_TINT * 0.55 * w).astype(np.uint8)
-    r = np.clip(g.retardant, 0, 1)[..., None]
+    r = np.clip(g.retardant[y0:y1, x0:x1], 0, 1)[..., None]
     rgb = (rgb * (1 - 0.6 * r) + RETARD_TINT * 0.6 * r).astype(np.uint8)
     if overlay == "heat":
-        e = np.clip(g.exposure / 2.0, 0, 1)[..., None]
+        e = np.clip(g.exposure[y0:y1, x0:x1] / 2.0, 0, 1)[..., None]
         rgb = (rgb * (1 - 0.7 * e) + HEAT_TINT * 0.7 * e).astype(np.uint8)
     elif overlay == "moisture":
-        m = np.clip(g.moisture, 0, 1)[..., None]
+        m = np.clip(g.moisture[y0:y1, x0:x1], 0, 1)[..., None]
         rgb = (rgb * (1 - 0.5 * m) + WATER_TINT * 0.5 * m).astype(np.uint8)
     return rgb
 

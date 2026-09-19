@@ -33,6 +33,8 @@ def units_table() -> str:
             notes.append(f"hose ≤ {v['hose_max_length']} cells")
         if v.get("can_cut_dense"):
             notes.append("cuts dense forest")
+        if v.get("road_speed"):
+            notes.append(f"travels {v['road_speed']} cells/s on roads")
         if v.get("drop_agent"):
             notes.append(f"drops {v['drop_agent']} ×{v.get('drop_width')} wide")
         if v.get("is_civilian"):
