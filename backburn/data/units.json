@@ -1,5 +1,5 @@
 {
-  "_comment": "Unit balance. speed = cells per simulated second on cost-1.0 terrain. Every number here is a design-space guess (brief \u00a715) and is expected to be tuned by play. confidence: documented | inferred | new cost/arrival_seconds: Sandbox-style budget and dispatch delay (new). label: display name.",
+  "_comment": "Unit balance. speed = cells per simulated second on cost-1.0 terrain. road_speed = cells per second while travelling on road or gravel cells regardless of terrain cost (transport, not cutting); the path planner also prefers roads for such units. Every number here is a design-space guess (brief §15) and is expected to be tuned by play. confidence: documented | inferred | new cost/arrival_seconds: Sandbox-style budget and dispatch delay (new). label: display name.",
   "types": {
     "HOSE_TEAM": {
       "confidence": "documented",
@@ -139,7 +139,8 @@
     "BULLDOZER": {
       "confidence": "documented",
       "movement": "OFFROAD",
-      "speed": 0.7,
+      "speed": 1.0,
+      "road_speed": 4.0,
       "color": [
         240,
         200,

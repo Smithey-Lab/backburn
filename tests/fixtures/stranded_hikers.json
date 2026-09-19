@@ -1,0 +1,104 @@
+{
+  "name": "Stranded Hikers",
+  "briefing": "Four hikers are cut off on a forested ridge with a fire below them. Fly them to the trailhead (green circle). Ground crews are limited; the helicopter is your rescue asset first and a water drop second.",
+  "notes": "Mission name from the original RTS (brief §5); layout is new. Elevation makes the fire run uphill toward the ridge.",
+  "seed": 21,
+  "width": 96,
+  "height": 72,
+  "moisture": 0.14,
+  "wind": {
+    "speed": 4,
+    "bearing": 20
+  },
+  "airbase": [
+    4,
+    66
+  ],
+  "staging": [
+    10,
+    66
+  ],
+  "safe_zone": [
+    12,
+    62,
+    5
+  ],
+  "duration": 1200,
+  "budget": 6000,
+  "available_units": [
+    "HELICOPTER",
+    "HOSE_TEAM",
+    "CUT_TEAM",
+    "HOTSHOTS",
+    "SMOKEJUMPERS"
+  ],
+  "terrain": {
+    "mode": "generate",
+    "params": {
+      "water_level": 0.22,
+      "shrub_level": 0.42,
+      "forest_level": 0.5,
+      "dense_level": 0.66,
+      "roads": 1,
+      "structures": 3
+    }
+  },
+  "elevation": {
+    "mode": "generate",
+    "relief": 120,
+    "seed": 5
+  },
+  "ignitions": [
+    {
+      "x": 40,
+      "y": 60,
+      "radius": 1
+    }
+  ],
+  "units": [
+    {
+      "type": "HELICOPTER",
+      "x": 4,
+      "y": 66
+    },
+    {
+      "type": "HOSE_TEAM",
+      "x": 10,
+      "y": 66
+    },
+    {
+      "type": "CIVILIAN",
+      "x": 44,
+      "y": 18
+    },
+    {
+      "type": "CIVILIAN",
+      "x": 47,
+      "y": 16
+    },
+    {
+      "type": "CIVILIAN",
+      "x": 52,
+      "y": 20
+    },
+    {
+      "type": "CIVILIAN",
+      "x": 49,
+      "y": 24
+    }
+  ],
+  "objectives": {
+    "rescue_all_civilians": true,
+    "max_civilians_lost": 0,
+    "win_on_contained": false
+  },
+  "events": [
+    {
+      "at": 240,
+      "wind": {
+        "speed": 8
+      },
+      "message": "Afternoon winds picking up"
+    }
+  ]
+}
