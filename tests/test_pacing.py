@@ -1,11 +1,15 @@
+from pathlib import Path
+
 import numpy as np
 
 from backburn.art import tree_cells
 from backburn.campaign import expanded_scenario
 from backburn.config import TerrainType
-from backburn.game import Game, scenario_dir
+from backburn.game import Game
 from backburn.scenario import load_scenario
 from backburn.sim import Simulation
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"  # v0.6 prototype-scale scenarios
 
 
 def test_trees_keep_their_positions_when_other_trees_burn():
@@ -19,7 +23,7 @@ def test_trees_keep_their_positions_when_other_trees_burn():
 
 
 def test_expanded_mission_retains_geography_and_rescue_is_winnable():
-    source = load_scenario(scenario_dir() / "stranded_hikers.json")
+    source = load_scenario(FIXTURES / "stranded_hikers.json")
     expanded = expanded_scenario(source)
     assert (expanded.width, expanded.height) == (288, 216)
     assert np.array_equal(expanded.build_terrain()[::3, ::3], source.build_terrain())

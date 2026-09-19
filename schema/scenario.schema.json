@@ -21,12 +21,12 @@
     "width": {
       "type": "integer",
       "minimum": 8,
-      "maximum": 512
+      "maximum": 2048
     },
     "height": {
       "type": "integer",
       "minimum": 8,
-      "maximum": 512
+      "maximum": 2048
     },
     "moisture": {
       "type": "number",
@@ -153,6 +153,121 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "const": "world"
+            },
+            "params": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "water_level": {
+                  "type": "number"
+                },
+                "shrub_level": {
+                  "type": "number"
+                },
+                "forest_level": {
+                  "type": "number"
+                },
+                "dense_level": {
+                  "type": "number"
+                },
+                "feature_cells": {
+                  "type": "number",
+                  "minimum": 8
+                },
+                "lake": {
+                  "type": "boolean"
+                },
+                "river": {
+                  "type": "boolean"
+                },
+                "river_width": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 12
+                },
+                "highways": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "spurs": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "towns": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "town_size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "town_radius": {
+                  "type": "integer",
+                  "minimum": 4
+                },
+                "ranches": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "road_width": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 5
+                },
+                "relief": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "canyon": {
+                  "type": "boolean"
+                },
+                "canyon_grade": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "town_centers": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  }
+                },
+                "shore_cabins": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "roads": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "minItems": 2,
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
             "mode",
             "rows"
           ],
@@ -192,6 +307,22 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 6
+            },
+            "feature_cells": {
+              "type": "number",
+              "minimum": 8
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "const": "world"
             }
           }
         },
@@ -310,6 +441,9 @@
           "type": "boolean"
         },
         "win_on_contained": {
+          "type": "boolean"
+        },
+        "win_on_timeout": {
           "type": "boolean"
         }
       }

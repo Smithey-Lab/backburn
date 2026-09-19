@@ -1,17 +1,20 @@
 """Flight lifecycle and desktop motion regressions."""
 
 import math
+from pathlib import Path
 
 import pytest
 
-from backburn.game import Game, scenario_dir
+from backburn.game import Game
 from backburn.scenario import load_scenario
 from backburn.sim import Simulation
 from backburn.units import DROP, HOLD, Order, Unit
 
+FIXTURES = Path(__file__).resolve().parent / "fixtures"  # v0.6 prototype-scale scenarios
+
 
 def flight():
-    sim = Simulation(load_scenario(scenario_dir() / "prairie_fire.json"))
+    sim = Simulation(load_scenario(FIXTURES / "prairie_fire.json"))
     plane = sim.world.add("WATER_BOMBER", 10, 40, sim.grid)
     plane.give(Order(DROP, points=[(30, 40), (65, 40)]))
     return sim, plane

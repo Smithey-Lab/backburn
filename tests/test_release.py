@@ -10,6 +10,8 @@ from backburn.scenario import load_scenario
 from backburn.sim import RUNNING, Simulation
 from backburn_update import current, install_archive
 
+FIXTURES = Path(__file__).resolve().parent / "fixtures"  # v0.6 prototype-scale scenarios
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -75,7 +77,7 @@ def test_interrupted_copy_keeps_previous_installation_and_can_retry(tmp_path, mo
 
 
 def test_replay_includes_commands_at_final_tick(tmp_path):
-    sim = Simulation(load_scenario(ROOT / "scenarios/prairie_fire.json"))
+    sim = Simulation(load_scenario(FIXTURES / "prairie_fire.json"))
     sim.step(5)
     sim.cmd_wind(13, 190)
     sim.cmd_order(1, "MOVE", target=(40, 40))
@@ -88,7 +90,7 @@ def test_replay_includes_commands_at_final_tick(tmp_path):
 
 
 def test_containment_waits_for_scheduled_ignition():
-    sc = load_scenario(ROOT / "scenarios/prairie_fire.json")
+    sc = load_scenario(FIXTURES / "prairie_fire.json")
     sc.events = [{"at": 50, "ignite": {"x": 30, "y": 30}}]
     sim = Simulation(sc)
     sim.grid.state[:] = 0
@@ -98,7 +100,7 @@ def test_containment_waits_for_scheduled_ignition():
 
 
 def test_hikers_can_be_rescued_in_shipped_mission():
-    sim = Simulation(load_scenario(ROOT / "scenarios/stranded_hikers.json"))
+    sim = Simulation(load_scenario(FIXTURES / "stranded_hikers.json"))
     heli = sim.world.units[0]
     for civilian in sim.world.civilians():
         sim.cmd_order(heli.uid, "PICKUP", unit_id=civilian.uid, queue=True)

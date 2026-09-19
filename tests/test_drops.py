@@ -1,10 +1,14 @@
+from pathlib import Path
+
 import pytest
 
 from backburn.drops import capacity_length, clip_path, length, payload_per_cell
-from backburn.game import Game, scenario_dir
+from backburn.game import Game
 from backburn.scenario import load_scenario
 from backburn.sim import Simulation
 from backburn.units import Order
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"  # v0.6 prototype-scale scenarios
 
 
 def test_clipping_follows_arc_length_not_distance_between_ends():
@@ -15,7 +19,7 @@ def test_clipping_follows_arc_length_not_distance_between_ends():
 
 
 def test_aircraft_applies_curve_and_spends_only_used_payload():
-    sim = Simulation(load_scenario(scenario_dir() / "prairie_fire.json"))
+    sim = Simulation(load_scenario(FIXTURES / "prairie_fire.json"))
     plane = sim.world.add("WATER_BOMBER", 10, 10, sim.grid)
     curve = [(20, 20), (30, 20), (30, 30)]
     plane.x, plane.y = curve[0]
@@ -35,7 +39,7 @@ def test_aircraft_applies_curve_and_spends_only_used_payload():
 
 
 def test_short_helicopter_drop_preserves_unused_water_and_preview_uses_remainder():
-    sim = Simulation(load_scenario(scenario_dir() / "prairie_fire.json"))
+    sim = Simulation(load_scenario(FIXTURES / "prairie_fire.json"))
     heli = sim.world.add("HELICOPTER", 20, 20, sim.grid)
     heli.give(Order("DROP", points=[(20, 20), (25, 20)]))
     for _ in range(5):
@@ -50,7 +54,7 @@ def test_short_helicopter_drop_preserves_unused_water_and_preview_uses_remainder
 def test_planning_purchases_replay_with_budget_and_no_free_units(tmp_path):
     from backburn.campaign import expanded_scenario
 
-    sim = Simulation(expanded_scenario(load_scenario(scenario_dir() / "prairie_fire.json")))
+    sim = Simulation(expanded_scenario(load_scenario(FIXTURES / "prairie_fire.json")))
     assert not sim.world.units
     assert sim.cmd_spawn("WATER_BOMBER", immediate=True)
     plane = sim.world.units[-1]
@@ -64,7 +68,7 @@ def test_planning_purchases_replay_with_budget_and_no_free_units(tmp_path):
 
 
 def test_oversized_drop_stops_at_real_payload_limit():
-    sim = Simulation(load_scenario(scenario_dir() / "prairie_fire.json"))
+    sim = Simulation(load_scenario(FIXTURES / "prairie_fire.json"))
     plane = sim.world.add("WATER_BOMBER", 20, 20, sim.grid)
     plane.x, plane.y = 20, 20
     plane.give(Order("DROP", points=[(20, 20), (120, 20)]))
