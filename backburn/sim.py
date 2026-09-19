@@ -60,6 +60,7 @@ class Simulation:
             terrain, seed=scenario.seed, base_moisture=scenario.moisture, elevation=scenario.build_elevation()
         )
         self.grid.set_wind(scenario.wind_speed, scenario.wind_bearing)
+        self.grid.weather_enabled = scenario.variable_wind
         self.world = World(
             airbase=tuple(scenario.airbase), staging=scenario.staging, safe_zone=scenario.safe_zone
         )
@@ -137,7 +138,9 @@ class Simulation:
         if immediate:
             px, py = self.world.spawn_point(utype, x, y)
             unit = self.world.add(utype, px, py, self.grid)
-            self._msg(f"{unit.label} purchased and ready", "system")
+            self._msg(
+                f"{unit.label} purchased" + ("; loading off-map" if unit.is_plane else " and ready"), "system"
+            )
             return
         a = self.world.request(utype, self.grid.time, x, y)
         eta = a.at - self.grid.time

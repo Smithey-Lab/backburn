@@ -8,6 +8,7 @@ from .scenario import Scenario
 
 def expanded_scenario(source: Scenario, scale: int = 3) -> Scenario:
     scenario = Scenario.from_dict(source.to_dict())
+    scenario.variable_wind = True
     scenario.terrain_mode = "grid"
     scenario.terrain_grid = np.repeat(np.repeat(source.build_terrain(), scale, axis=0), scale, axis=1)
     scenario.height, scenario.width = scenario.terrain_grid.shape

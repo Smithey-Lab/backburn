@@ -58,6 +58,8 @@ def test_orders_during_reload_wait_and_saved_flight_resumes():
 def test_hold_does_not_leave_plane_hovering():
     sim, plane = flight()
     plane.x, plane.y = 50, 40
+    plane.current = None
+    plane.tank = plane.capacity
     plane.give(Order(HOLD))
     plane.update(sim.grid, 1, sim.world)
     assert plane.state == "EXITING"

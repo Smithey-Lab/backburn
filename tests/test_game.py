@@ -154,7 +154,7 @@ def test_mouse_draws_payload_limited_curve_and_escape_cancels(game):
     game.handle(pygame.event.Event(pygame.MOUSEBUTTONUP, button=3, pos=game.to_screen(*points[-1])))
     order = plane.orders[0]
     assert order.kind == "DROP" and len(order.points) > 2
-    assert length(order.points) <= capacity_length(plane.spec, plane.tank) + 1e-6
+    assert length(order.points) <= capacity_length(plane.spec, plane.capacity) + 1e-6
     assert order.points[-1][0] < points[-1][0]
     game.handle(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=3, pos=game.to_screen(10, 10)))
     game.handle(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE))
