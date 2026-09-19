@@ -1,3 +1,27 @@
+## Backburn v0.7.0 — big country
+
+- Every mission is roughly nine times larger (about 3× wider and taller, up to 1440×990
+  cells) and is generated natively at that size: more lakes, rivers with bridges, highways,
+  gravel spurs, towns of separate buildings and outlying ranches, instead of an upscaled
+  small map. The four original incidents were rebuilt from scratch at the new scale.
+- Seven new incidents: Canyon Run, Lakeshore Cabins, Highway 9, Timber Ridge, Ember Storm,
+  Fire Complex and The Long Watch (survival), plus a Random Incident mode that rolls a
+  complete mission from a seed and can be rerolled from the mission room.
+- Bulldozers travel at road speed on highways and gravel when they are not cutting, and the
+  route planner sends them along roads. Off-road travel is faster too; cutting is unchanged.
+- Missions can now be won by holding the line until the clock runs out (`win_on_timeout`),
+  which the survival, complex and extreme-weather incidents use.
+- Performance: the fire model only computes inside the regions around active fire and wet
+  ground, long orders use a block-level route planner with lazy refinement (cross-map orders
+  take tens of milliseconds instead of seconds), the map surface is patched in place, trees
+  and flames are batched sprites, autosaves are written on a worker thread, and a 16× speed
+  is available. Frame times stay under 16 ms on the largest maps.
+- Mission room: twelve cards in a grid with cached thumbnails, a reroll button for random
+  incidents, and Shift for fast panning on the big maps.
+
+Existing saves keep their layout and continue to load. Replays recorded with v0.6 do not
+reproduce exactly under the new fire kernel.
+
 ## Backburn v0.6.0 — wind, firebreaks and clearer line previews
 
 - Preview circles are spaced farther apart. Dozers and cutting crews now preview and follow curved firebreaks; engines and hose teams show their suppression radius.
