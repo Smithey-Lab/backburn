@@ -12,7 +12,7 @@ ignition or an `ignite` event.
   "notes": "Author notes, never shown.",
 
   "seed": 33,                     // int — drives terrain generation AND fire randomness
-  "width": 128, "height": 80,     // 8..512; ignored in grid mode (taken from rows)
+  "width": 1152, "height": 720,   // 8..2048; ignored in grid mode (taken from rows)
   "moisture": 0.10,               // 0..1 base fuel moisture (lower = drier = faster)
   "wind": { "speed": 7, "bearing": 100 },   // m/s, compass degrees the wind blows TOWARD
   "duration": 1500,               // seconds until timeout
@@ -24,8 +24,8 @@ ignition or an `ignite` event.
   "budget": 12000,                // null/absent = unlimited (Sandbox mode)
   "available_units": ["ENGINE", "RETARDANT_BOMBER"],   // absent = all non-civilian types
 
-  "terrain": { "mode": "generate", "params": { ... } }   // or grid mode, see below
-  "elevation": { "mode": "generate", "relief": 90, "seed": 3 },   // optional; or grid mode
+  "terrain": { "mode": "world", "params": { ... } }      // or generate / grid mode, see below
+  "elevation": { "mode": "world" },                      // optional; or generate / grid mode
 
   "ignitions": [ { "x": 8, "y": 30, "radius": 1 } ],
   "units":     [ { "type": "ENGINE", "x": 8, "y": 40 } ],   // snapped to passable cells
@@ -38,7 +38,32 @@ ignition or an `ignite` event.
 
 ## Terrain
 
-**Generate mode** — seeded procedural map. Params (all optional):
+**World mode** — the desktop missions. A seeded large map whose *feature size stays
+constant* however big the map is: more lakes, roads and towns rather than bigger blobs.
+One cell is roughly 3 m. Built by `backburn/worldgen.py`; every param is optional:
+
+| Param | Default | Meaning |
+|---|---|---|
+| `water_level` | 0.28 | noise threshold below which cells are lake water (sand fringe added) |
+| `shrub_level` / `forest_level` / `dense_level` | 0.45 / 0.52 / 0.68 | vegetation thresholds |
+| `feature_cells` | 96 | cells per noise lattice interval: the size of lakes, meadows and stands |
+| `lake` | true | false for no lakes |
+| `river` | false | a meandering river, `river_width` cells wide (default 4); roads bridge it |
+| `highways` | 2 | edge-to-edge roads, `road_width` cells wide (default 3), avoiding lakes |
+| `spurs` | 4 | gravel roads branching off the highways |
+| `towns` | 1 | clusters of `town_size` separate buildings within `town_radius` of a road cell |
+| `town_centers` | — | `[[x, y], ...]` authored town positions (snapped to a road, or a spur is laid) |
+| `roads` | — | authored highway polylines `[[[x, y], [x, y], ...], ...]`, drawn first |
+| `ranches` | 8 | single buildings near roads outside towns |
+| `shore_cabins` | 0 | single buildings on lake shores |
+| `relief` | 0 | metres of rolling elevation derived from the same noise (lakes sit in the low ground) |
+| `canyon` / `canyon_grade` | false / 0.3 | V-shaped valley along the river line, walls rising at this grade |
+
+`"elevation": {"mode": "world"}` uses the elevation the world generator produced for these
+params; leave `elevation` out for a flat map.
+
+**Generate mode** — the prototype-scale generator (one lattice stretched over the map).
+Params (all optional):
 
 | Param | Default | Meaning |
 |---|---|---|
@@ -66,10 +91,12 @@ replay whose embedded scenario carries your paint commands, or bake with `gen`.
 
 ## Elevation
 
-Optional. `{"mode": "generate", "relief": metres, "seed": n, "octaves": 3}` makes rolling
-terrain with that total relief; `{"mode": "grid", "rows": [[...]]}` gives explicit metres
-per cell (height × width). Fire runs uphill; see `FIRE_MODEL.md`. Without elevation the
-map is flat and the slope term is skipped.
+Optional. `{"mode": "world"}` pairs with world-mode terrain (see above).
+`{"mode": "generate", "relief": metres, "seed": n, "octaves": 3}` makes rolling terrain
+with that total relief (add `"feature_cells"` to keep hill size constant on large maps);
+`{"mode": "grid", "rows": [[...]]}` gives explicit metres per cell (height × width). Fire
+runs uphill; see `FIRE_MODEL.md`. Without elevation the map is flat and the slope term is
+skipped.
 
 ## Objectives
 
@@ -80,6 +107,7 @@ map is flat and the slope term is skipped.
 | `max_area_burned_pct` | number | FAILED when burned fuel area exceeds this percentage |
 | `rescue_all_civilians` | bool | required for CONTAINED; at timeout with civilians still out → FAILED |
 | `win_on_contained` | bool (default true) | **CONTAINED** as soon as nothing burns, no embers fly, and no scar is hot enough to re-ignite |
+| `win_on_timeout` | bool (default false) | reaching `duration` with every limit intact (and everyone rescued) counts as **CONTAINED** — survival and "hold the line" missions |
 
 Outcomes: `running`, `contained`, `failed`, `timeout` (duration reached without failing).
 `Simulation.step()` returns 0 once an outcome is set.
@@ -100,8 +128,16 @@ Events are part of the scenario, so replays reproduce them without logging.
 ## Units
 
 `{"type": "...", "x": .., "y": ..}` — types are the keys of `data/units.json`. Positions are
-snapped to the nearest cell the unit's movement class can stand on (within 12 cells), so
+snapped to the nearest cell the unit's movement class can stand on (within 48 cells), so
 placing an engine roughly near a road is enough. `CIVILIAN` entries are the rescue objective.
+The desktop game strips non-civilian units and starts every mission with an empty fleet.
+
+## Authoring the shipped missions
+
+`tools/author_missions.py` holds the placement rules for every shipped mission (staging on a
+road near town, fires upwind, hikers on the highest ridge, and so on) and writes
+`scenarios/*.json`; `--preview DIR` renders annotated maps and `--check` (run by the tests)
+fails when the files drift from the rules. Change the rules, re-run the tool, commit both.
 
 ## Validation rules
 

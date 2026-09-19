@@ -125,6 +125,40 @@ when everyone is safe. Containment missions wait for scheduled future ignitions.
 - **One-folder PyInstaller build, not one-file.** *(new)* One-file unpacks ~100 MB on
   every launch and trips antivirus heuristics.
 
+## Added in v0.7 (2026-09-19)
+
+- **Desktop maps are generated natively at desktop scale, about 3 m per cell.** *(new)* The
+  v0.3–v0.6 maps were 3× nearest-neighbour upscales of 128-wide prototype files, so a bigger
+  map meant bigger blobs. `worldgen.py` keeps feature size constant (`feature_cells`) and
+  fills the extra area with more lakes, roads, towns and ranches. The prototype generator and
+  the small scenario files stay as test fixtures and for the tuning harness.
+- **Map size: about 9× the v0.6 area (up to 1440×990 cells).** *(new)* Chosen with the
+  player; 81× was rejected because a pure-Python simulation cannot hold it.
+- **The fire step processes a list of active regions, not the grid.** *(new)* Regions are
+  bounding boxes around burning/smoldering/wet cells with a one-cell margin, re-derived each
+  tick from 32×32 activity tiles and merged when within two cells. The maths is identical
+  to a full pass; the cost follows the fires. Grids up to 256×256 still run the full pass.
+- **Long orders plan on a block graph whose nodes are (block, connected component).**
+  *(new)* Rivers and lakes inside a block are honest barriers. Only the next few blocks are
+  refined onto cells, and a corridor that still turns out to be cut marks the block and
+  replans. The fine A* runs on flat Python lists inside a window; NumPy never sits in the
+  hot loop. Flow fields remain deferred.
+- **Bulldozers have a `road_speed`.** *(documented feel, new mechanism)* On road and gravel
+  a travelling dozer moves at 4 cells/s regardless of terrain cost (its lowboy), 1 cell/s
+  otherwise, and cuts at the unchanged `cut_rate`. Its path cost row treats roads as
+  `speed / road_speed` so routes prefer them. Other classes keep their terrain costs.
+- **`win_on_timeout` is an objective.** *(new)* Survival and hold-the-line incidents end
+  CONTAINED when the clock runs out with every limit intact.
+- **Random incidents are scenarios rolled from a seed, not a separate game mode.** *(new)*
+  Save, replay and score paths are unchanged; the seed is the whole definition.
+- **Shipped missions are authored by rules, baked to JSON.** *(new)* `tools/author_missions.py`
+  places staging, fires and civilians from the generated map; the JSON files it writes stay
+  the single source of truth the game loads and the tests check that they match the rules.
+- **Renderer patches, never rebuilds.** *(new)* One map-sized surface is updated only where
+  the regions changed; decorations are sprite blits limited to the visible window; the
+  minimap and scaled view are cached per change; autosaves compress on a worker thread from
+  a snapshot taken in milliseconds.
+
 ## Explicitly deferred
 
 Multiplayer, voice, weather-driven moisture, unit destruction, audio, sprites. All are in
