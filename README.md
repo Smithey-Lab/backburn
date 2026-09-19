@@ -50,15 +50,25 @@ New mission maps are 50% wider and taller than v0.3.2. Maps extend beyond the in
 and Home for an overview.
 
 Every new mission starts with **no response units**. Press **B** to buy your fleet.
-Purchases made before the incident clock starts cost budget but are ready immediately;
+Ground-unit purchases made before the incident clock starts cost budget but are ready immediately;
 later reinforcements use the displayed arrival countdown. Civilians remain on the map.
 
 Select the **Aircraft** roster tab to command planes even while they are off-map.
 Right-drag a curved route: coverage circles show exactly the planned swath, and the route
 stops at the available payload limit. Release to confirm, hold Shift to queue, or press Esc
-to cancel. Short drops consume only the payload used. Planes exit through the nearest map
+to cancel. Short drops consume only the payload used. Planes start empty and load off-map after you
+resume; you can queue their first drop while loading. Planes exit through the nearest map
 edge and reload outside it. Watch **READY 100%** and the reload countdown. Helicopters retain
 hovering and rescues. Select a card and use **Locate** to center on any unit.
+
+Circle previews are spaced apart for clarity. Dozers and cut crews also preview curved,
+continuous firebreaks, and suppression units show their target radius. Cleared firebreaks
+have no fuel and block direct spread, including diagonal gaps between touching cleared
+cells. Strong winds can carry embers over them.
+
+The map wind indicator points **toward** the direction the wind carries fire, and shows
+speed and ember risk. Wind gradually gusts and shifts in new missions. Strong-wind ember
+trails show where spotting can cross your lines. There is no on-map air-base marker.
 
 WASD works at overview zoom too. The camera can travel into a bounded margin beyond the
 map; Home recenters the overview. Existing saves keep their original units and layout.
