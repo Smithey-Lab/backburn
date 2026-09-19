@@ -29,7 +29,7 @@ import numpy as np
 from .config import TERRAIN, UNITS, MoveClass, TerrainType
 from .drops import capacity_length, clip_path, payload_per_cell
 from .fire import BURNING, SMOLDER
-from .pathfinding import build_cost, find_path
+from .pathfinding import Route, build_cost, find_path
 
 if TYPE_CHECKING:
     from .fire import FireGrid
@@ -59,6 +59,26 @@ _NO_CUT = {
     int(TerrainType.SAND),
     int(TerrainType.FIREBREAK),
 }
+_ROAD_CELLS = {int(TerrainType.ROAD), int(TerrainType.GRAVEL)}
+_COST_ROWS: dict[str, np.ndarray] = {}
+
+
+def cost_row_for(utype: str) -> np.ndarray:
+    """Path cost per terrain id for a unit type. Units with a ``road_speed`` treat roads and
+    gravel as ``speed / road_speed`` cost so the planner routes them along roads."""
+    row = _COST_ROWS.get(utype)
+    if row is None:
+        spec = UNITS[utype]
+        row = TERRAIN.cost_for(spec["movement_class"]).copy()
+        road_speed = float(spec.get("road_speed", 0.0))
+        if road_speed > 0:
+            factor = float(spec["speed"]) / road_speed
+            for t in _ROAD_CELLS:
+                if np.isfinite(row[t]):
+                    row[t] = min(row[t], factor)
+        row.setflags(write=False)
+        _COST_ROWS[utype] = row
+    return row
 
 
 @dataclass
@@ -102,6 +122,7 @@ class Unit:
     orders: deque = field(default_factory=deque)
     current: Order | None = None
     path: list = field(default_factory=list)
+    route: Route | None = None  # unrefined remainder of a long move (see pathfinding.py)
     tank: float = 0.0
     hose: list = field(default_factory=list)  # cells from unit to water source
     hose_source: tuple[int, int] | None = None
@@ -166,6 +187,16 @@ class Unit:
     def busy(self) -> bool:
         return self.current is not None or bool(self.orders)
 
+    @property
+    def road_speed(self) -> float:
+        """Cells per second while travelling on a road or gravel (0 = no road bonus)."""
+        return float(self.spec.get("road_speed", 0.0))
+
+    @property
+    def cost_row(self) -> np.ndarray:
+        """Per-terrain path cost for this unit type; road travellers see roads as cheaper."""
+        return cost_row_for(self.utype)
+
     def __post_init__(self) -> None:
         if self.tank == 0.0:
             self.tank = self.capacity
@@ -194,6 +225,7 @@ class Unit:
 
     def _reset_order_state(self) -> None:
         self.path = []
+        self.route = None
         self.cut_index = 0
         self.cut_progress = 0.0
         self.drop_phase = 0
@@ -222,55 +254,82 @@ class Unit:
         if self.replan_cooldown > 0:
             return False
         self.replan_cooldown = 2.0
-        cost = build_cost(grid.terrain, grid.state, TERRAIN.cost_for(self.move_class))
-        p = find_path(cost, self.cell, (tx, ty))
-        if p is None:
+        plan = self._navigator(grid).plan(self.cell, (tx, ty))
+        if plan is None:
+            self.route = None
             return False
-        self.path = p
-        self.arrived = len(p) == 0
+        self.path, self.route = plan
+        self.arrived = len(self.path) == 0 and self.route is None
+        return True
+
+    def _navigator(self, grid: FireGrid):
+        return grid.nav().field(grid, self.cost_row, grid.version)
+
+    def _continue_route(self, grid: FireGrid) -> bool:
+        """Refine the next leg of a long move once the current leg is used up."""
+        if self.route is None:
+            return False
+        leg = self._navigator(grid).refine(self.cell, self.route)
+        if leg is None or not leg[0]:
+            self.route = None
+            return False
+        self.path, self.route = leg
         return True
 
     def _advance(self, grid: FireGrid, dt: float) -> bool:
-        """Move along self.path. Returns True when the path is exhausted."""
+        """Move along self.path. Returns True when the path (and any route) is exhausted.
+
+        ``budget`` is measured in seconds of travel. A cell costs ``terrain_cost / speed``
+        seconds, except that units with a ``road_speed`` cross road and gravel cells at
+        that speed regardless of terrain cost: a dozer on its lowboy is not cutting line.
+        """
         speed = float(self.spec["speed"])
-        budget = speed * dt
-        while self.path and budget > 1e-6:
+        road_speed = self.road_speed
+        budget = dt
+        base_cost = TERRAIN.cost_for(self.move_class)
+        while budget > 1e-6:
+            if not self.path and not self._continue_route(grid):
+                break
             nx, ny = self.path[0]
             if not self.is_air:
                 if grid.state[ny, nx] in (BURNING, SMOLDER):
                     self.path = []
+                    self.route = None
                     return False
-                c = float(TERRAIN.cost_for(self.move_class)[grid.terrain[ny, nx]])
+                t = int(grid.terrain[ny, nx])
+                c = float(base_cost[t])
                 if not math.isfinite(c):
                     self.path = []
+                    self.route = None
                     return False
+                rate = road_speed if (road_speed > 0 and t in _ROAD_CELLS) else speed / c
             else:
-                c = 1.0
+                rate = speed
             dx, dy = nx - self.x, ny - self.y
             dist = math.hypot(dx, dy)
-            step = budget / c
+            step = budget * rate
             if step >= dist:
                 self.x, self.y = float(nx), float(ny)
-                budget -= dist * c
+                budget -= dist / rate
                 self.path.pop(0)
             else:
                 self.x += dx / dist * step
                 self.y += dy / dist * step
                 budget = 0.0
-        if not self.path:
+        if not self.path and self.route is None:
             self.arrived = True
-        return not self.path
+        return not self.path and self.route is None
 
     def _approach(self, grid: FireGrid, target: tuple[float, float], tol: float, dt: float) -> bool | None:
         """Walk toward target. True = in position, False = still moving, None = unreachable."""
         d = math.hypot(target[0] - self.x, target[1] - self.y)
         if d <= tol:
             return True
-        if self.arrived and not self.path:
+        if self.arrived and not self.path and self.route is None:
             if d > tol + 3.0:
                 self.say(f"can't get closer than {d:.0f} cells")
             return True
-        if not self.path:
+        if not self.path and self.route is None:
             if not self._plan_to(grid, target):
                 if self.replan_cooldown > 0 and not self.arrived:
                     self.state = "MOVING"
@@ -469,9 +528,12 @@ class Unit:
         for d, wx, wy in candidates:
             if d > maxlen:
                 break
-            p = find_path(cost, (cx, cy), (wx, wy))
+            p = find_path(cost, (cx, cy), (wx, wy), max_expand=8_000)
             if p is None or len(p) > maxlen:
                 continue
+            end = p[-1] if p else (cx, cy)
+            if math.hypot(end[0] - wx, end[1] - wy) > 1.5:
+                continue  # the water is fenced off; the hose would end short of it
             self.hose = [(cx, cy)] + p
             self.hose_source = (wx, wy)
             return True
@@ -493,6 +555,7 @@ class Unit:
                 self._cut_cell(grid, *self.cell)
             self.cut_index += 1
             self.path = []
+            self.route = None
             self.arrived = False
             return
         if self.cut_index == 0:
@@ -504,6 +567,7 @@ class Unit:
             if a is True:
                 self.cut_index = 1
                 self.path = []
+                self.route = None
                 self.arrived = False
             return
         self.state = "WORKING"
@@ -790,7 +854,7 @@ class Unit:
             c = self._safe_cell(grid, near, clear=6, max_r=20)
             if c is not None:
                 cost = build_cost(grid.terrain, grid.state, TERRAIN.cost_for(self.move_class))
-                p = find_path(cost, self.cell, c)
+                p = find_path(cost, self.cell, c, max_expand=6_000)
                 self.path = p or []
                 if self.state != FLEEING:
                     self.say("fleeing the fire")
@@ -812,6 +876,7 @@ class Unit:
             "orders": [o.to_dict() for o in self.orders],
             "current": self.current.to_dict() if self.current else None,
             "path": [list(p) for p in self.path],
+            "route": self.route.to_dict() if self.route else None,
             "tank": self.tank,
             "hose": [list(c) for c in self.hose],
             "hose_source": list(self.hose_source) if self.hose_source else None,
@@ -836,6 +901,7 @@ class Unit:
         u.orders = deque(Order.from_dict(o) for o in d["orders"])
         u.current = Order.from_dict(d["current"]) if d["current"] else None
         u.path = [tuple(p) for p in d["path"]]
+        u.route = Route.from_dict(d.get("route"))
         u.tank = float(d["tank"])
         u.hose = [tuple(c) for c in d["hose"]]
         u.hose_source = tuple(d["hose_source"]) if d["hose_source"] else None
@@ -928,7 +994,7 @@ class World:
 
     @staticmethod
     def snap_passable(
-        grid: "FireGrid", mc: MoveClass, x: float, y: float, max_r: int = 12
+        grid: "FireGrid", mc: MoveClass, x: float, y: float, max_r: int = 48
     ) -> tuple[float, float]:
         """Nearest cell this movement class can stand on (scenario placement is forgiving)."""
         cost = TERRAIN.cost_for(mc)
@@ -937,16 +1003,14 @@ class World:
         cy = min(max(cy, 0), grid.h - 1)
         if math.isfinite(cost[grid.terrain[cy, cx]]):
             return float(cx), float(cy)
-        best, bd = None, 1e9
-        for r in range(1, max_r + 1):
-            for yy in range(max(0, cy - r), min(grid.h, cy + r + 1)):
-                for xx in range(max(0, cx - r), min(grid.w, cx + r + 1)):
-                    if math.isfinite(cost[grid.terrain[yy, xx]]):
-                        d = math.hypot(xx - cx, yy - cy)
-                        if d < bd:
-                            bd, best = d, (xx, yy)
-            if best is not None:
-                return float(best[0]), float(best[1])
+        for r in (4, 12, max_r):
+            y0, y1 = max(0, cy - r), min(grid.h, cy + r + 1)
+            x0, x1 = max(0, cx - r), min(grid.w, cx + r + 1)
+            ok = np.isfinite(cost[grid.terrain[y0:y1, x0:x1]])
+            if ok.any():
+                ys, xs = np.nonzero(ok)
+                k = int(np.argmin((ys + y0 - cy) ** 2 + (xs + x0 - cx) ** 2))
+                return float(xs[k] + x0), float(ys[k] + y0)
         return float(cx), float(cy)
 
     # ---- queries ----------------------------------------------------------------------
@@ -995,7 +1059,8 @@ class World:
                             bd, best = dd, (xx, yy)
             if best is None:
                 continue
-            if find_path(cost, (fx, fy), best) is not None:
+            p = find_path(cost, (fx, fy), best, max_expand=8_000)
+            if p is not None and (not p or p[-1] == best):
                 return best
         return None
 
