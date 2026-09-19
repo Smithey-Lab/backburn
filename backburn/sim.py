@@ -111,7 +111,9 @@ class Simulation:
         cost = float(UNITS[utype].get("cost", 0))
         return self.budget is None or self.budget - self.spent >= cost
 
-    def cmd_spawn(self, utype: str, x: float | None = None, y: float | None = None) -> bool:
+    def cmd_spawn(
+        self, utype: str, x: float | None = None, y: float | None = None, immediate: bool = False
+    ) -> bool:
         """Purchase a unit. It arrives after its dispatch delay at the staging point
         (ground) or airbase (air) unless coordinates are given. Returns False when the
         unit is unavailable in this scenario or the budget can't cover it."""
@@ -125,12 +127,18 @@ class Simulation:
                 "system",
             )
             return False
-        self._record("spawn", utype=utype, x=x, y=y)
-        self._spawn(utype, x, y)
+        immediate = immediate and self.tick == 0
+        self._record("spawn", utype=utype, x=x, y=y, immediate=immediate)
+        self._spawn(utype, x, y, immediate)
         return True
 
-    def _spawn(self, utype: str, x: float | None, y: float | None) -> None:
+    def _spawn(self, utype: str, x: float | None, y: float | None, immediate: bool = False) -> None:
         self.spent += float(UNITS[utype].get("cost", 0))
+        if immediate:
+            px, py = self.world.spawn_point(utype, x, y)
+            unit = self.world.add(utype, px, py, self.grid)
+            self._msg(f"{unit.label} purchased and ready", "system")
+            return
         a = self.world.request(utype, self.grid.time, x, y)
         eta = a.at - self.grid.time
         self._msg(f"{UNITS[utype].get('label', utype)} requested, arriving in {eta:.0f}s", "system")
@@ -412,7 +420,7 @@ class Simulation:
         elif c.kind == "wind":
             self.grid.set_wind(a["speed"], a["bearing"])
         elif c.kind == "spawn":
-            self._spawn(a["utype"], a.get("x"), a.get("y"))
+            self._spawn(a["utype"], a.get("x"), a.get("y"), a.get("immediate", False))
         elif c.kind == "place":
             self.world.add(a["utype"], a["x"], a["y"], self.grid)
         elif c.kind == "order":

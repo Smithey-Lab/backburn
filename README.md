@@ -49,11 +49,22 @@ Incidents open paused for planning. Normal speed is one simulation second per re
 New mission maps are 50% wider and taller than v0.3.2. Maps extend beyond the initial camera view; use WASD, the wheel or the minimap to explore,
 and Home for an overview.
 
-Planes stage off-map at the sides. Select one in the roster and right-drag a drop line.
-They fly in, drop, exit, and reload off-map. Watch for **READY 100%** or the reload countdown.
-You can queue the next run while reloading. Helicopters can still hover and rescue.
+Every new mission starts with **no response units**. Press **B** to buy your fleet.
+Purchases made before the incident clock starts cost budget but are ready immediately;
+later reinforcements use the displayed arrival countdown. Civilians remain on the map.
 
-Start with Stranded Hikers for a short rescue mission, or Prairie Fire to use the full fleet.
+Select the **Aircraft** roster tab to command planes even while they are off-map.
+Right-drag a curved route: coverage circles show exactly the planned swath, and the route
+stops at the available payload limit. Release to confirm, hold Shift to queue, or press Esc
+to cancel. Short drops consume only the payload used. Planes exit through the nearest map
+edge and reload outside it. Watch **READY 100%** and the reload countdown. Helicopters retain
+hovering and rescues. Select a card and use **Locate** to center on any unit.
+
+WASD works at overview zoom too. The camera can travel into a bounded margin beyond the
+map; Home recenters the overview. Existing saves keep their original units and layout.
+
+Try Stranded Hikers: buy a helicopter before resuming, queue pickups and return to the
+safe zone. Start a new mission to use the new fleet purchasing setup.
 
 ## Development
 

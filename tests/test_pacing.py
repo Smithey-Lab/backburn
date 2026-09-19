@@ -24,7 +24,9 @@ def test_expanded_mission_retains_geography_and_rescue_is_winnable():
     assert (expanded.width, expanded.height) == (288, 216)
     assert np.array_equal(expanded.build_terrain()[::3, ::3], source.build_terrain())
     sim = Simulation(expanded)
-    heli = sim.world.units[0]
+    assert all(u.is_civilian for u in sim.world.units)
+    assert sim.cmd_spawn("HELICOPTER", immediate=True)
+    heli = sim.world.units[-1]
     for civilian in sim.world.civilians():
         sim.cmd_order(heli.uid, "PICKUP", unit_id=civilian.uid, queue=True)
     sim.cmd_order(heli.uid, "DROPOFF", target=sim.world.safe_zone[:2], queue=True)
