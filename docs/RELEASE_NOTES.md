@@ -1,3 +1,11 @@
+## Backburn v0.6.0 — wind, firebreaks and clearer line previews
+
+- Preview circles are spaced farther apart. Dozers and cutting crews now preview and follow curved firebreaks; engines and hose teams show their suppression radius.
+- Planes arrive empty and load off-map. Queue a drop while loading; the aircraft waits until full. Removed the on-map air-base marker.
+- New missions have gradual, bounded gusts and direction shifts, preserved through save/load and replay. A compass arrow shows the direction wind is blowing toward, speed and ember risk; airborne embers have visible trails.
+- Firebreak terrain is now nonflammable, direct spread cannot slip diagonally through touching cleared cells, and crews clear the last cell of their line.
+- Strong wind accelerates downwind spread and can loft embers from grass as well as timber. Embers can cross firebreaks; embers leaving the map no longer ignite its border.
+
 ## Backburn v0.5.0 — plan your fleet and draw curved drops
 
 - Aircraft drops follow the route you draw. Coverage circles preview the swath; stroke length is capped to available payload, using the same calculation as the simulation. Short drops conserve unused payload.

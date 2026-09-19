@@ -170,10 +170,10 @@
         150,
         100
       ],
-      "fuel": 0.02,
-      "ignition_rate": 0.05,
-      "burn_rate": 0.2,
-      "heat_output": 0.05,
+      "fuel": 0.0,
+      "ignition_rate": 0.0,
+      "burn_rate": 0.0,
+      "heat_output": 0.0,
       "smolder_time": 0,
       "move": {
         "FOOT": 0.9,
@@ -207,7 +207,7 @@
   "fire": {
     "_comment": "Global fire constants. exposure_scale converts summed neighbour heat into an ignition hazard; wind_gain scales how much wind speed (m/s) tilts spread; dryness_floor keeps saturated cells from being fully immune. retardant_strength > 1 means full-strength retardant blocks ignition entirely until it decays. slope_gain: exp(gain \u00d7 grade) uphill multiplier (grade = rise/run, cell_size_m per cell). spot_*: ember spotting, only above spot_min_wind m/s, only from fuels with heat_output \u2265 spot_min_heat.",
     "exposure_scale": 0.18,
-    "wind_gain": 0.14,
+    "wind_gain": 0.2,
     "wind_upwind_min": 0.12,
     "slope_gain": 1.5,
     "dryness_floor": 0.08,
@@ -223,7 +223,7 @@
     "cell_size_m": 10.0,
     "spot_min_wind": 8.0,
     "spot_rate": 0.002,
-    "spot_min_heat": 0.9,
+    "spot_min_heat": 0.6,
     "spot_ignite": 0.5,
     "spot_dist_base": 4.0,
     "spot_dist_gain": 1.2,

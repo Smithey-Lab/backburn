@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import random
 from dataclasses import dataclass
 
 import numpy as np
@@ -71,6 +72,11 @@ class Ember:
     x1: float
     y1: float
     ttl: int
+    duration: int = 0
+
+    def __post_init__(self):
+        if self.duration <= 0:
+            self.duration = self.ttl
 
 
 class FireGrid:
@@ -104,6 +110,10 @@ class FireGrid:
             elevation.astype(np.float32) if elevation is not None else np.zeros((self.h, self.w), np.float32)
         )
 
+        self.weather_enabled = False
+        self.weather_base_speed = 0.0
+        self.weather_base_bearing = 0.0
+        self.weather_epoch = 0.0
         self.wind_speed = 0.0  # m/s
         self.wind_bearing = 0.0  # degrees, blowing toward
         self._labels: np.ndarray | None = None
@@ -122,6 +132,30 @@ class FireGrid:
     def set_wind(self, speed: float, bearing_deg: float) -> None:
         self.wind_speed = float(max(0.0, speed))
         self.wind_bearing = float(bearing_deg % 360.0)
+        self.weather_base_speed = self.wind_speed
+        self.weather_base_bearing = self.wind_bearing
+        self.weather_epoch = self.time
+        self._wind_cache = None
+
+    def _update_weather(self):
+        if not self.weather_enabled:
+            return
+        phase = max(0, self.time - self.weather_epoch) / 35.0
+        index = int(phase)
+        fraction = phase - index
+        blend = fraction * fraction * (3 - 2 * fraction)
+
+        def knot(number):
+            if number == 0:
+                return 0.0, 0.0
+            rng = random.Random(self.seed * 104729 + number * 8191)
+            return rng.uniform(-0.25, 0.35), rng.uniform(-20, 20)
+
+        a, b = knot(index), knot(index + 1)
+        speed_offset = a[0] + (b[0] - a[0]) * blend
+        bearing_offset = a[1] + (b[1] - a[1]) * blend
+        self.wind_speed = self.weather_base_speed * (1 + speed_offset)
+        self.wind_bearing = (self.weather_base_bearing + bearing_offset) % 360
         self._wind_cache = None
 
     def _wind_factor_table(self) -> np.ndarray:
@@ -255,6 +289,7 @@ class FireGrid:
     # ---- the step -------------------------------------------------------------
 
     def step(self, dt: float = 1.0) -> None:
+        self._update_weather()
         h, w = self.h, self.w
         T = self.terrain
         st = self.state
@@ -280,6 +315,13 @@ class FireGrid:
             ys, ye, xs, xe = max(0, dy), h + min(0, dy), max(0, dx), w + min(0, dx)
             tgt_view = exposure[ys:ye, xs:xe]
             src_view = emitted[max(0, -dy) : h + min(0, -dy), max(0, -dx) : w + min(0, -dx)]
+            if dx and dy:
+                # Diagonal neighbour heat cannot squeeze between touching
+                # non-fuel cells in a completed road, cut line or water barrier.
+                side_a = self.terrain[ys:ye, xs - dx : xe - dx]
+                side_b = self.terrain[ys - dy : ye - dy, xs:xe]
+                open_corner = (TERRAIN.fuel[side_a] > 0.01) & (TERRAIN.fuel[side_b] > 0.01)
+                src_view = src_view * open_corner
             if slope is not None:
                 tgt_view += src_view * wf[i] * slope[i][ys:ye, xs:xe]
             else:
@@ -371,8 +413,10 @@ class FireGrid:
                     keep.append(e)
             self.embers = keep
             if lx:
-                xs = np.clip(np.rint(lx).astype(int), 0, self.w - 1)
-                ys = np.clip(np.rint(ly).astype(int), 0, self.h - 1)
+                xs = np.rint(lx).astype(int)
+                ys = np.rint(ly).astype(int)
+                inside = (xs >= 0) & (xs < self.w) & (ys >= 0) & (ys < self.h)
+                xs, ys = xs[inside], ys[inside]
                 p_ign = (
                     float(FIRE.get("spot_ignite", 0.5))
                     * dryness[ys, xs]
@@ -445,6 +489,10 @@ class FireGrid:
             "wind_bearing": self.wind_bearing,
             "spot_fires": self.spot_fires,
             "rng_state": self.rng.bit_generator.state,
+            "weather_enabled": self.weather_enabled,
+            "weather_base_speed": self.weather_base_speed,
+            "weather_base_bearing": self.weather_base_bearing,
+            "weather_epoch": self.weather_epoch,
             "embers": [e.__dict__ for e in self.embers],
         }
 
@@ -463,9 +511,20 @@ class FireGrid:
             "ignited_at",
         ):
             setattr(g, k, np.array(arrays[k]))
+        # Older saves gave cleared lines residual fuel; keep them nonflammable
+        # under the corrected terrain rules, including any already-burning line.
+        cleared = g.terrain == TerrainType.FIREBREAK
+        g.fuel[cleared] = 0
+        g.state[cleared] = UNBURNED
+        g.smolder_timer[cleared] = 0
+        g.heat[cleared] = 0
         g.set_elevation(np.array(arrays["elevation"]))
         g.time = float(meta["time"])
         g.set_wind(meta["wind_speed"], meta["wind_bearing"])
+        g.weather_enabled = bool(meta.get("weather_enabled", False))
+        g.weather_base_speed = float(meta.get("weather_base_speed", g.wind_speed))
+        g.weather_base_bearing = float(meta.get("weather_base_bearing", g.wind_bearing))
+        g.weather_epoch = float(meta.get("weather_epoch", g.time))
         g.spot_fires = int(meta.get("spot_fires", 0))
         g.rng.bit_generator.state = meta["rng_state"]
         g.embers = [Ember(**e) for e in meta.get("embers", [])]

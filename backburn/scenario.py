@@ -67,6 +67,7 @@ class Scenario:
     moisture: float = 0.15
     wind_speed: float = 4.0
     wind_bearing: float = 90.0
+    variable_wind: bool = False
     terrain_mode: str = "generate"
     terrain_params: dict = field(default_factory=dict)
     terrain_grid: np.ndarray | None = None
@@ -120,7 +121,7 @@ class Scenario:
             "width": self.width,
             "height": self.height,
             "moisture": self.moisture,
-            "wind": {"speed": self.wind_speed, "bearing": self.wind_bearing},
+            "wind": {"speed": self.wind_speed, "bearing": self.wind_bearing, "variable": self.variable_wind},
             "airbase": list(self.airbase),
             "staging": list(self.staging) if self.staging else None,
             "safe_zone": list(self.safe_zone) if self.safe_zone else None,
@@ -156,6 +157,7 @@ class Scenario:
             moisture=float(d.get("moisture", 0.15)),
             wind_speed=float(wind.get("speed", 4.0)),
             wind_bearing=float(wind.get("bearing", 90.0)),
+            variable_wind=bool(wind.get("variable", False)),
             ignitions=list(d.get("ignitions", [])),
             units=list(d.get("units", [])),
             airbase=tuple(d.get("airbase", [2.0, 2.0])),
@@ -212,6 +214,8 @@ def validate(d: dict) -> None:
         raise ScenarioError("wind must be an object {speed, bearing}")
     num("speed", 0, 40, wind, "wind.speed")
     num("bearing", parent=wind, label="wind.bearing")
+    if "variable" in wind and not isinstance(wind["variable"], bool):
+        raise ScenarioError("wind.variable must be a boolean")
 
     t = d.get("terrain", {})
     mode = t.get("mode", "generate")
