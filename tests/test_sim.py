@@ -271,7 +271,7 @@ def test_helicopter_drops_and_refills():
     )
     sim = Simulation(sc)
     u = sim.world.units[0]
-    sim.cmd_order(u.uid, "DROP", points=[(20, 20), (30, 20)])
+    sim.cmd_order(u.uid, "DROP", points=[(20, 20), (40, 20)])
     sim.step(30)
     assert sim.grid.water[20, 20:31].max() > 0 or sim.grid.moisture[20, 20:31].max() > 0.2
     sim.step(60)
