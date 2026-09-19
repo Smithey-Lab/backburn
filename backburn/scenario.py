@@ -3,7 +3,8 @@
 See docs/SCENARIO_FORMAT.md for the full field reference and schema/scenario.schema.json
 for the machine-readable schema. Two terrain modes round-trip through the same file:
 
-  "generate" — seeded procedural map from a handful of parameters
+  "generate" — seeded procedural map from a handful of parameters (prototype scale)
+  "world"    — seeded large map with constant feature size (worldgen.py, desktop missions)
   "grid"     — explicit rows of single-letter terrain codes (editor output)
 
 Letter codes: W water  G grass  S shrub  F forest  D dense forest
@@ -20,6 +21,7 @@ import numpy as np
 
 from .config import UNITS
 from .config import TerrainType as T
+from .worldgen import generate_world, generate_world_elevation, generate_world_pair
 
 LETTER_TO_T = {
     "W": T.WATER,
@@ -34,6 +36,12 @@ LETTER_TO_T = {
     "A": T.SAND,
 }
 T_TO_LETTER = {int(v): k for k, v in LETTER_TO_T.items()}
+_LETTER_LUT = np.zeros(256, np.uint8)
+for _k, _v in LETTER_TO_T.items():
+    _LETTER_LUT[ord(_k)] = int(_v)
+_T_LUT = np.array([ord(T_TO_LETTER[i]) for i in range(len(T_TO_LETTER))], np.uint8)
+TERRAIN_MODES = ("generate", "grid", "world")
+MAX_SIDE = 2048
 
 DEFAULT_OBJECTIVES = {
     "max_structures_lost": None,  # int → lose when exceeded
@@ -41,6 +49,7 @@ DEFAULT_OBJECTIVES = {
     "max_area_burned_pct": None,  # float → lose when exceeded
     "rescue_all_civilians": False,  # bool → required to win on timeout
     "win_on_contained": True,  # bool → win the moment the fire is out
+    "win_on_timeout": False,  # bool → reaching the end of the clock with limits intact is a win (survival)
 }
 DEFAULT_SCORING = {
     "structure_saved": 500,
@@ -94,6 +103,8 @@ class Scenario:
         if self.terrain_mode == "grid":
             assert self.terrain_grid is not None, "grid mode needs terrain_grid"
             return self.terrain_grid.astype(np.uint8)
+        if self.terrain_mode == "world":
+            return generate_world(self.width, self.height, self.seed, **self.terrain_params)
         return generate_terrain(self.width, self.height, self.seed, **self.terrain_params)
 
     def build_elevation(self) -> np.ndarray | None:
@@ -102,6 +113,19 @@ class Scenario:
             return None
         if e.get("mode") == "grid":
             return np.asarray(e["rows"], dtype=np.float32)
+        if e.get("mode") == "world":
+            if self.terrain_mode != "world":
+                raise ScenarioError("elevation.mode 'world' needs terrain.mode 'world'")
+            return generate_world_pair(self.width, self.height, self.seed, **self.terrain_params)[1].copy()
+        if "feature_cells" in e or self.terrain_mode == "world":
+            return generate_world_elevation(
+                self.width,
+                self.height,
+                int(e.get("seed", self.seed + 1000)),
+                relief=float(e.get("relief", 60.0)),
+                feature_cells=float(e.get("feature_cells", 160.0)),
+                octaves=int(e.get("octaves", 3)),
+            )
         return generate_elevation(
             self.width,
             self.height,
@@ -135,10 +159,9 @@ class Scenario:
             "units": self.units,
         }
         if self.terrain_mode == "grid" and self.terrain_grid is not None:
-            rows = ["".join(T_TO_LETTER[int(v)] for v in row) for row in self.terrain_grid]
-            d["terrain"] = {"mode": "grid", "rows": rows}
+            d["terrain"] = {"mode": "grid", "rows": grid_to_rows(self.terrain_grid)}
         else:
-            d["terrain"] = {"mode": "generate", "params": self.terrain_params}
+            d["terrain"] = {"mode": self.terrain_mode, "params": self.terrain_params}
         if self.elevation:
             d["elevation"] = self.elevation
         return d
@@ -174,16 +197,22 @@ class Scenario:
         t = d.get("terrain", {"mode": "generate", "params": {}})
         s.terrain_mode = t.get("mode", "generate")
         if s.terrain_mode == "grid":
-            rows = t["rows"]
-            s.height, s.width = len(rows), len(rows[0])
-            g = np.zeros((s.height, s.width), np.uint8)
-            for y, row in enumerate(rows):
-                for x, ch in enumerate(row):
-                    g[y, x] = int(LETTER_TO_T[ch])
-            s.terrain_grid = g
+            s.terrain_grid = rows_to_grid(t["rows"])
+            s.height, s.width = s.terrain_grid.shape
         else:
             s.terrain_params = dict(t.get("params", {}))
         return s
+
+
+def rows_to_grid(rows: list[str]) -> np.ndarray:
+    """Letter rows → uint8 terrain ids (vectorised; large maps have a million cells)."""
+    raw = np.frombuffer("".join(rows).encode("ascii"), np.uint8)
+    return _LETTER_LUT[raw].reshape(len(rows), len(rows[0])).copy()
+
+
+def grid_to_rows(grid: np.ndarray) -> list[str]:
+    letters = _T_LUT[grid.astype(np.uint8)]
+    return [row.tobytes().decode("ascii") for row in letters]
 
 
 def validate(d: dict) -> None:
@@ -203,8 +232,8 @@ def validate(d: dict) -> None:
 
     if not isinstance(d, dict):
         raise ScenarioError("scenario must be a JSON object")
-    num("width", 8, 512)
-    num("height", 8, 512)
+    num("width", 8, MAX_SIDE)
+    num("height", 8, MAX_SIDE)
     num("moisture", 0, 1)
     num("duration", 1)
     num("seed")
@@ -219,8 +248,8 @@ def validate(d: dict) -> None:
 
     t = d.get("terrain", {})
     mode = t.get("mode", "generate")
-    if mode not in ("generate", "grid"):
-        raise ScenarioError(f"terrain.mode must be 'generate' or 'grid', got {mode!r}")
+    if mode not in TERRAIN_MODES:
+        raise ScenarioError(f"terrain.mode must be one of {TERRAIN_MODES}, got {mode!r}")
     if mode == "grid":
         rows = t.get("rows")
         if not rows or not all(isinstance(r, str) for r in rows):

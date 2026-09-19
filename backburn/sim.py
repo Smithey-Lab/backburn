@@ -191,9 +191,7 @@ class Simulation:
         self._extinguish(int(x), int(y), int(radius))
 
     def _extinguish(self, x: int, y: int, radius: int) -> None:
-        ys, xs = self.grid._disc(x, y, radius)
-        self.grid.state[ys, xs] = 0
-        self.grid.smolder_timer[ys, xs] = 0.0
+        self.grid.extinguish(x, y, radius)
 
     # ---- stepping -----------------------------------------------------------
 
@@ -306,6 +304,9 @@ class Simulation:
         if self.grid.time >= self.scenario.duration:
             if obj.get("rescue_all_civilians") and civ["total"] and civ["rescued"] < civ["total"]:
                 self._end(FAILED, "Time expired with civilians still unrescued")
+            elif obj.get("win_on_timeout"):
+                self.contained_at = self.grid.time
+                self._end(CONTAINED, "Held the line until relief arrived")
             else:
                 self._end(TIMEOUT, "Time expired")
 
@@ -330,8 +331,7 @@ class Simulation:
         w = self.scenario.scoring
         s = self.grid.stats()
         civ = self.civilian_counts()
-        fuel_cells = int((self.grid.fuel > 0.02).sum()) if self.grid.fuel.size else 0
-        saved_cells = max(0, fuel_cells - s.burned_cells)
+        saved_cells = max(0, self.grid.fuel_cells - s.burned_cells)
         remaining = 0.0 if self.budget is None else max(0.0, self.budget - self.spent)
         parts = {
             "structures_saved": (s.structures_total - s.structures_lost) * float(w["structure_saved"]),
@@ -448,8 +448,27 @@ class Simulation:
 
     # ---- full-state savegame ---------------------------------------------------------
 
+    def snapshot(self) -> tuple[dict, dict]:
+        """Copies of everything a savegame needs, taken while the simulation is idle, so the
+        (slow) compression can run on another thread without racing the next tick."""
+        meta = self._save_meta()
+        arrays = {k: np.array(v, copy=True) for k, v in self.grid.to_arrays().items()}
+        return meta, arrays
+
+    @staticmethod
+    def write_snapshot(snapshot: tuple[dict, dict], path: str | Path) -> None:
+        meta, arrays = snapshot
+        buf = io.BytesIO()
+        np.savez(buf, **arrays)
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as z:
+            z.writestr("meta.json", json.dumps(meta))
+            z.writestr("grid.npz", buf.getvalue())
+
     def save_state(self, path: str | Path) -> None:
         """Write a resumable savegame: a zip holding meta.json and grid.npz (no pickling)."""
+        self.write_snapshot((self._save_meta(), self.grid.to_arrays()), path)
+
+    def _save_meta(self) -> dict:
         meta = {
             "format": SAVE_FORMAT,
             "scenario": self.scenario.to_dict(),
@@ -467,11 +486,7 @@ class Simulation:
             "messages": [m.__dict__ for m in self.messages[-200:]],
             "world": self.world.to_dict(),
         }
-        buf = io.BytesIO()
-        np.savez_compressed(buf, **self.grid.to_arrays())
-        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-            z.writestr("meta.json", json.dumps(meta))
-            z.writestr("grid.npz", buf.getvalue())
+        return meta
 
     @classmethod
     def load_state(cls, path: str | Path) -> "Simulation":
