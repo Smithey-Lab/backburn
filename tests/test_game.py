@@ -44,7 +44,7 @@ def test_ui_order_clamps_map_edges_and_save_load_restores(game):
     game.start()
     game.modal = None
     game.act("buy:CUT_TEAM")
-    game.issue(game.clamp_point((-100, -30)), game.clamp_point((999, 999)))
+    game.issue(game.clamp_point((-100, -30)), game.clamp_point((9999, 9999)))
     order = game.sim.world.by_id(game.selected).orders[0]
     assert order.kind == "CUT"
     assert order.points == [(0, 0), (game.sim.grid.w - 1, game.sim.grid.h - 1)]
@@ -58,10 +58,14 @@ def test_ui_order_clamps_map_edges_and_save_load_restores(game):
 
 
 def test_all_views_draw_at_minimum_window(game):
+    from backburn.game import MISSIONS
+
     game.screen = pygame.display.set_mode((1100, 760))
     game.layout()
     game.draw()
-    for index in range(4):
+    assert all(game.screen.get_rect().contains(rect) for rect, _ in game.buttons)
+    assert sum(1 for _, action in game.buttons if action.startswith("mission:")) == len(MISSIONS)
+    for index in range(len(MISSIONS)):
         game.mission = index
         game.start()
         game.draw()
@@ -69,6 +73,49 @@ def test_all_views_draw_at_minimum_window(game):
             game.modal = modal
             game.draw()
             assert all(game.screen.get_rect().contains(rect) for rect, _ in game.buttons)
+
+
+def test_random_incident_card_rerolls_and_thumbnails_are_cached(game, tmp_path):
+    from backburn.game import MISSIONS, RANDOM
+    from backburn.storage import data_dir
+
+    index = MISSIONS.index(RANDOM)
+    game.mission = index
+    game.draw()
+    seed = game.random_seed
+    reroll = next(rect for rect, action in game.buttons if action == "reroll")
+    game.handle(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=reroll.center))
+    assert game.random_seed != seed and game.scenarios[index].seed == game.random_seed
+    game.draw()
+    thumbs = list((data_dir() / "thumbs").glob("*.png"))
+    assert len(thumbs) >= len(MISSIONS)
+    game.start()
+    assert game.sim.scenario.name.startswith("Random Incident")
+    game.act("begin")
+    game.act("pause")
+    for _ in range(12):
+        game.update(0.1)
+    assert game.sim.tick > 0
+    game.draw()
+
+
+def test_speed_keys_cover_16x_and_shift_pans_faster(game, monkeypatch):
+    from collections import defaultdict
+
+    game.start()
+    game.act("begin")
+    game.handle(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_4))
+    assert game.speed == 16
+    game.cam = [200.0, 200.0]
+    start = list(game.cam)
+    keys = defaultdict(int, {pygame.K_d: 1})
+    monkeypatch.setattr(pygame.key, "get_pressed", lambda: keys)
+    game.update(0.1)
+    slow = game.cam[0] - start[0]
+    game.cam = list(start)
+    keys[pygame.K_LSHIFT] = 1
+    game.update(0.1)
+    assert game.cam[0] - start[0] > slow * 2
 
 
 def test_game_starts_with_stereo_audio_device(tmp_path, monkeypatch):

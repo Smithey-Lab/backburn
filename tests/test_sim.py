@@ -11,6 +11,8 @@ from backburn.fire import BURNING, COLD, SMOLDER, UNBURNED, FireGrid
 from backburn.pathfinding import build_cost, find_path
 from backburn.scenario import generate_terrain
 
+FIXTURES = Path(__file__).resolve().parent / "fixtures"  # v0.6 prototype-scale scenarios
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -48,7 +50,7 @@ def test_different_seed_different_hash():
 
 
 def test_replay_reproduces_final_hash(tmp_path):
-    sim = Simulation(load_scenario(ROOT / "scenarios" / "prairie_fire.json"))
+    sim = Simulation(load_scenario(FIXTURES / "prairie_fire.json"))
     uids = {u.utype: u.uid for u in sim.world.units}
     sim.step(5)
     sim.cmd_order(uids["CUT_TEAM"], "CUT", points=[(34, 44), (34, 62)])
@@ -312,7 +314,7 @@ def test_perf_budget():
     """The Python prototype must sustain well above 10 ticks/s on a 128×96 map with 8 units."""
     import time
 
-    sim = Simulation(load_scenario(ROOT / "scenarios" / "prairie_fire.json"))
+    sim = Simulation(load_scenario(FIXTURES / "prairie_fire.json"))
     t0 = time.time()
     sim.step(200)
     dt = time.time() - t0

@@ -14,6 +14,8 @@ from backburn.fire import FireGrid
 from backburn.scenario import generate_elevation, validate
 from backburn.units import DROPOFF, PICKUP, SAFE
 
+FIXTURES = Path(__file__).resolve().parent / "fixtures"  # v0.6 prototype-scale scenarios
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -257,7 +259,7 @@ def test_generated_elevation_is_deterministic():
 
 
 def test_savegame_roundtrip_is_exact(tmp_path):
-    sim = Simulation(load_scenario(ROOT / "scenarios" / "prairie_fire.json"))
+    sim = Simulation(load_scenario(FIXTURES / "prairie_fire.json"))
     uids = {u.utype: u.uid for u in sim.world.units}
     sim.cmd_order(uids["HELICOPTER"], "DROP", points=[(20, 36), (20, 48)])
     sim.cmd_order(uids["CUT_TEAM"], "CUT", points=[(34, 44), (34, 62)])
