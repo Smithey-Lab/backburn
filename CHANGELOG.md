@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.0 — 2026-09-19
+
+Maps and missions
+- `world` terrain mode (`backburn/worldgen.py`): constant feature size on any map, lakes, rivers with
+  bridges, highways, gravel spurs, towns, ranches, shore cabins, matching elevation with an optional canyon.
+- Eleven authored missions at ~9× the previous area, rebuilt by `tools/author_missions.py`, plus the
+  Random Incident mode (`backburn/incidents.py`).
+- `win_on_timeout` objective (survival / hold-the-line wins).
+
+Units
+- Bulldozer: off-road travel 1.0 cells/s, `road_speed` 4.0 cells/s on road and gravel while travelling;
+  the planner prefers roads for units with a road speed. Spawn snapping searches 48 cells.
+
+Performance
+- Fire step processes a merged list of active regions (fire, smolder, wet ground) instead of the whole
+  grid; per-cell terrain tables and stats are cached; moisture settles exactly to base.
+- Pathfinding: flat-index windowed A*, block graph with per-block connected components (rivers are
+  honest barriers), lazy corridor refinement with self-correcting replans, per-tick cost caches.
+- Renderer: in-place map surface patching, sprite batching for trees/buildings/flames/smoke, cached
+  minimap and view scaling, disk-cached mission thumbnails, threaded autosaves, 16× speed.
+
 ## 0.2.0 — 2026-09-18
 
 Gameplay

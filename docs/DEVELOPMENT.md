@@ -6,7 +6,7 @@
 git clone <your repo> backburn && cd backburn
 python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
-pytest -q                                          # ~4 s, 41 tests
+pytest -q                                          # ~15 s
 backburn view                                      # play
 ```
 
@@ -21,7 +21,7 @@ backburn/            the package (SimulationCore + tooling)
 scenarios/           shipped scenarios (validated by tests)
 schema/              JSON Schema for scenario files
 tests/               pytest suite: test_sim.py (model), test_features.py (gameplay, persistence, CLI)
-tools/               gen_tables.py (docs from data), front_speed.py (tuning readout)
+tools/               gen_tables.py (docs from data), author_missions.py (shipped mission rules), front_speed.py
 docs/                this folder
 godot/               Godot 4 shell + PORTING.md
 packaging/           PyInstaller spec and build scripts for a Windows executable
@@ -37,6 +37,7 @@ packaging/           PyInstaller spec and build scripts for a Windows executable
 | check docs match data | `python tools/gen_tables.py --check` |
 | regenerate docs tables | `python tools/gen_tables.py` |
 | validate scenarios | `backburn validate scenarios/*.json` |
+| rebuild the shipped missions | `python tools/author_missions.py --preview /tmp/previews` |
 | measure speed | `backburn bench` |
 | headless run with a GIF | `backburn run scenarios/wall_of_fire.json --ticks 900 --gif out.gif` |
 | reproduce a bug | play, `F5`, then `backburn replay replay.json --png end.png` |

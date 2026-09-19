@@ -34,3 +34,13 @@ def save_game(sim, name="quicksave.bbsave"):
     temporary = path.with_suffix(".tmp")
     sim.save_state(temporary)
     temporary.replace(path)
+
+
+def save_snapshot(snapshot, name="autosave.bbsave"):
+    """Write a snapshot taken with ``Simulation.snapshot()``; safe to call from a thread."""
+    from .sim import Simulation
+
+    path = data_dir() / name
+    temporary = path.with_suffix(f".{name}.tmp")
+    Simulation.write_snapshot(snapshot, temporary)
+    temporary.replace(path)

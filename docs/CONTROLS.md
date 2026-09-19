@@ -23,7 +23,7 @@ fully playable.
 |---|---|
 | `W A S D` | pan |
 | `Space` | pause / resume |
-| `1` `2` `3` | speed 1× / 3× / 8× |
+| `1` `2` `3` | speed 1× / 3× / 8× (the desktop game adds `4` = 16× and Shift for fast panning) |
 | `[` `]` | wind bearing −15° / +15° |
 | `-` `=` | wind speed −1 / +1 m/s |
 | `B` | buy menu; press the letter next to a unit to purchase (budget and dispatch delay apply); `B`/`Esc` closes |
