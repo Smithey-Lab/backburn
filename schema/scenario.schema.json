@@ -44,6 +44,10 @@
         },
         "bearing": {
           "type": "number"
+        },
+        "variable": {
+          "type": "boolean",
+          "default": false
         }
       }
     },

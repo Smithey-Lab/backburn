@@ -14,7 +14,7 @@ numeric comes from `backburn/data/units.json`; the table below is generated from
 | `SMOKEJUMPERS` | Smokejumpers | documented | FOOT | 1.0 | CUT | 900 | 60 | 0 | 0 | 1 | air-deployable |
 | `ENGINE` | Engine | documented | ROAD | 2.6 | SPRAY | 900 | 60 | 220 | 3.2 | 0 |  |
 | `BRUSH_TRUCK` | Brush Truck | documented | OFFROAD | 2.0 | SPRAY | 700 | 60 | 120 | 2.4 | 0 |  |
-| `BULLDOZER` | Bulldozer | documented | OFFROAD | 0.7 | CUT | 1400 | 150 | 0 | 0 | 2 | cuts dense forest |
+| `BULLDOZER` | Bulldozer | documented | OFFROAD | 0.7 | CUT | 1400 | 45 | 0 | 0 | 2 | cuts dense forest |
 | `HELICOPTER` | Helicopter | documented | AIR | 6.0 | DROP | 2500 | 90 | 90 | 0 | 0 | carries 4; drops water ×2 wide |
 | `WATER_BOMBER` | Water Bomber | documented | AIR | 9.0 | DROP | 4000 | 180 | 400 | 0 | 0 | reloads at base 45s; drops water ×3 wide |
 | `RETARDANT_BOMBER` | Retardant Bomber | documented | AIR | 8.0 | DROP | 4500 | 200 | 400 | 0 | 0 | reloads at base 60s; drops retardant ×3 wide |

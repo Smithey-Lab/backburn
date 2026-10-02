@@ -155,7 +155,7 @@
       "refill_rate": 0,
       "can_cut_dense": true,
       "cost": 1400,
-      "arrival_seconds": 150,
+      "arrival_seconds": 45,
       "label": "Bulldozer",
       "purchasable": true
     },

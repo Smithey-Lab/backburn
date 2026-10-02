@@ -51,6 +51,29 @@ def test_updater_rejects_missing_executable(tmp_path):
         install_archive(path, digest, "v0.3.0", tmp_path / "install")
 
 
+def test_interrupted_copy_keeps_previous_installation_and_can_retry(tmp_path, monkeypatch):
+    import backburn_update
+
+    root = tmp_path / "install"
+    path, digest = bundle(tmp_path, {"Backburn.exe": b"exe", "_internal/data": b"data"})
+    first = install_archive(path, digest, "v0.3.0", root)
+    copy = backburn_update.shutil.copytree
+
+    def interrupted(source, destination):
+        destination.mkdir()
+        (destination / "Backburn.exe").write_bytes(b"incomplete")
+        raise PermissionError("Copy interrupted")
+
+    monkeypatch.setattr(backburn_update.shutil, "copytree", interrupted)
+    with pytest.raises(PermissionError):
+        install_archive(path, digest, "v0.3.2", root)
+    assert current(root) == first
+    monkeypatch.setattr(backburn_update.shutil, "copytree", copy)
+    second = install_archive(path, digest, "v0.3.2", root)
+    assert current(root) == second
+    assert (root / second["folder"] / "_internal/data").read_bytes() == b"data"
+
+
 def test_replay_includes_commands_at_final_tick(tmp_path):
     sim = Simulation(load_scenario(ROOT / "scenarios/prairie_fire.json"))
     sim.step(5)
