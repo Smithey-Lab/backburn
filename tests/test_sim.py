@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from backburn import Scenario, Simulation, load_scenario
-from backburn.config import TERRAIN, MoveClass
+from backburn.config import FIRE, TERRAIN, MoveClass
 from backburn.config import TerrainType as T
 from backburn.fire import BURNING, COLD, SMOLDER, UNBURNED, FireGrid
 from backburn.pathfinding import build_cost, find_path
@@ -102,7 +102,8 @@ def test_fuel_ordering_grass_shrub_forest_dense():
     assert res[T.GRASS] > 4 * res[T.DENSE_FOREST], res
 
 
-def test_firebreak_holds_without_spotting():
+def test_firebreak_holds_without_spotting(monkeypatch):
+    monkeypatch.setitem(FIRE, "spot_rate", 0)
     t = flat(T.GRASS)
     t[:, 50] = int(T.FIREBREAK)
     g = FireGrid(t, seed=3)
@@ -271,7 +272,7 @@ def test_helicopter_drops_and_refills():
     )
     sim = Simulation(sc)
     u = sim.world.units[0]
-    sim.cmd_order(u.uid, "DROP", points=[(20, 20), (30, 20)])
+    sim.cmd_order(u.uid, "DROP", points=[(20, 20), (40, 20)])
     sim.step(30)
     assert sim.grid.water[20, 20:31].max() > 0 or sim.grid.moisture[20, 20:31].max() > 0.2
     sim.step(60)
