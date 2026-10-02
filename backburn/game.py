@@ -13,7 +13,10 @@ import pygame
 
 from . import __version__
 from .art import details, terrain_surface, unit_icon
-from .config import TERRAIN, UNITS
+from .campaign import expanded_scenario
+from .config import FIRE, TERRAIN, UNITS
+from .drops import capacity_length, clip_path, coverage_centers, length, payload_per_cell, smooth_path
+from .fire import bearing_to_vector
 from .render import OVERLAYS
 from .scenario import load_scenario
 from .sim import RUNNING, Simulation
@@ -27,6 +30,7 @@ INK = (234, 232, 216)
 MUTED = (153, 173, 168)
 ORANGE = (238, 157, 82)
 TEAL = (124, 201, 179)
+NORMAL_TICKS_PER_SECOND = 1
 MISSIONS = ["prairie_fire", "stranded_hikers", "refinery_row", "wall_of_fire"]
 DESCRIPTIONS = [
     "Hold the road. Protect the settlement.",
@@ -63,7 +67,9 @@ class Game:
         self.page = "menu"
         self.modal = None
         self.mission = 0
-        self.scenarios = [load_scenario(scenario_dir() / f"{key}.json") for key in MISSIONS]
+        self.scenarios = [
+            expanded_scenario(load_scenario(scenario_dir() / f"{key}.json")) for key in MISSIONS
+        ]
         self.previews = [terrain_surface(Simulation(s)) for s in self.scenarios]
         self.settings = read_json(data_dir() / "settings.json", {"sound": True})
         self.progress = read_json(data_dir() / "progress.json", {})
@@ -76,11 +82,15 @@ class Game:
         self.paused = True
         self.speed = 1
         self.acc = 0.0
+        self.previous_positions = {}
+        self.latest_arrival = None
         self.overlay = 0
         self.drag = None
+        self.drag_points = []
         self.pan = None
         self.order_mode = "AUTO"
         self.roster_scroll = 0
+        self.roster_filter = "all"
         self.sandbox = False
         self.editor_tool = None
         self.brush = 1
@@ -146,6 +156,25 @@ class Game:
         self.zoom = min(self.viewport.w / g.w, self.viewport.h / g.h)
         self.cam = [(g.w - self.viewport.w / self.zoom) / 2, (g.h - self.viewport.h / self.zoom) / 2]
 
+    def tactical_camera(self):
+        self.zoom = 8.0
+        x, y = self.sim.world.staging
+        if self.sim.scenario.ignitions:
+            fire = min(self.sim.scenario.ignitions, key=lambda p: math.hypot(p["x"] - x, p["y"] - y))
+            x, y = (x + fire["x"]) / 2, (y + fire["y"]) / 2
+        self.cam = [x - self.viewport.w / self.zoom / 2, y - self.viewport.h / self.zoom / 2]
+        self.clamp_camera()
+
+    def clamp_camera(self):
+        for axis, (size, visible) in enumerate(
+            ((self.sim.grid.w, self.viewport.w / self.zoom), (self.sim.grid.h, self.viewport.h / self.zoom))
+        ):
+            margin = max(24, min(80, visible * 0.3))
+            center = (size - visible) / 2
+            lower = min(-margin, center - margin)
+            upper = max(size - visible + margin, center + margin)
+            self.cam[axis] = min(upper, max(lower, self.cam[axis]))
+
     def to_screen(self, x, y):
         return (
             round(self.viewport.x + (x + 0.5 - self.cam[0]) * self.zoom),
@@ -162,7 +191,9 @@ class Game:
         return (min(self.sim.grid.w - 1, max(0, p[0])), min(self.sim.grid.h - 1, max(0, p[1])))
 
     def start(self, sandbox=False):
-        self.sim = Simulation(load_scenario(scenario_dir() / f"{MISSIONS[self.mission]}.json"))
+        self.sim = Simulation(
+            expanded_scenario(load_scenario(scenario_dir() / f"{MISSIONS[self.mission]}.json"))
+        )
         self.sandbox = sandbox
         if sandbox:
             self.sim.scenario.objectives = {"win_on_contained": False}
@@ -174,14 +205,19 @@ class Game:
         self.paused = True
         self.speed = 1
         self.acc = 0
+        self.drag = None
+        self.drag_points = []
+        self.previous_positions = {}
+        self.latest_arrival = None
         self.selected = next((u.uid for u in self.sim.world.units if not u.is_civilian), None)
         self.result_saved = False
         self.auto_tick = 0
         self.roster_scroll = 0
+        self.roster_filter = "all"
         self.editor_tool = None
         self.order_mode = "AUTO"
         self.overlay = 0
-        self.fit()
+        self.tactical_camera()
 
     def save(self, name="quicksave.bbsave"):
         try:
@@ -204,8 +240,13 @@ class Game:
         self.sandbox = restored.scenario.duration == 86400
         self.selected = None
         self.drag = None
+        self.drag_points = []
         self.result_saved = False
         self.acc = 0
+        self.drag = None
+        self.drag_points = []
+        self.previous_positions = {}
+        self.latest_arrival = None
         self.auto_tick = restored.tick
         self.fit()
         self.say("Save loaded and paused. Press Space when ready.")
@@ -220,7 +261,8 @@ class Game:
             self.start(True)
         elif action == "begin":
             self.modal = None
-            self.paused = False
+            self.paused = True
+            self.say("Planning phase: position your camera and queue orders. Press Resume when ready.")
         elif action == "close":
             self.modal = None
         elif action == "pause":
@@ -250,11 +292,26 @@ class Game:
             self.modal = action
         elif action.startswith("speed:"):
             self.speed = int(action.split(":")[1])
+        elif action == "scroll:up":
+            self.roster_scroll = max(0, self.roster_scroll - 1)
+        elif action == "scroll:down":
+            self.roster_scroll += 1
+        elif action.startswith("roster:"):
+            self.roster_filter = action.split(":")[1]
+            self.roster_scroll = 0
+        elif action == "locate":
+            unit = self.sim.world.by_id(self.selected)
+            if unit:
+                self.cam = [
+                    unit.x - self.viewport.w / self.zoom / 2,
+                    unit.y - self.viewport.h / self.zoom / 2,
+                ]
+                self.clamp_camera()
         elif action.startswith("unit:"):
             self.selected = int(action.split(":")[1])
             self.order_mode = "AUTO"
             u = self.sim.world.by_id(self.selected)
-            if not self.viewport.collidepoint(self.to_screen(u.x, u.y)):
+            if not u.is_plane and not self.viewport.collidepoint(self.to_screen(u.x, u.y)):
                 self.cam = [u.x - self.viewport.w / self.zoom / 2, u.y - self.viewport.h / self.zoom / 2]
         elif action.startswith("order:"):
             self.order_mode = action.split(":")[1]
@@ -263,8 +320,24 @@ class Game:
                 self.order_mode = "AUTO"
         elif action.startswith("buy:"):
             kind = action.split(":")[1]
-            self.sim.cmd_spawn(kind)
-            self.say(self.sim.messages[-1].text)
+            accepted = self.sim.cmd_spawn(kind, immediate=self.sim.tick == 0)
+            self.say(self.sim.messages[-1].text + (" / Space to resume arrivals" if self.paused else ""))
+            if accepted:
+                self.modal = None
+                if self.sim.tick == 0:
+                    unit = self.sim.world.units[-1]
+                    self.act(f"unit:{unit.uid}")
+                    self.roster_filter = "air" if unit.is_air else "ground"
+                    self.roster_scroll = 0
+                    self.latest_arrival = unit.uid
+                    self.say(
+                        f"{unit.label}: "
+                        + (
+                            "loading off-map. Draw a drop to queue it."
+                            if unit.is_plane
+                            else "purchased and selected. Ready for orders."
+                        )
+                    )
         elif action.startswith("tool:"):
             tool = action.split(":")[1]
             self.editor_tool = None if self.editor_tool == tool else tool
@@ -278,6 +351,11 @@ class Game:
             self.screen = pygame.display.set_mode((max(1100, ev.w), max(760, ev.h)), pygame.RESIZABLE)
             self.layout()
         elif ev.type == pygame.KEYDOWN:
+            if ev.key == pygame.K_ESCAPE and self.drag is not None:
+                self.drag = None
+                self.drag_points = []
+                self.say("Drop plan cancelled.")
+                return
             if ev.key == pygame.K_ESCAPE:
                 self.modal = None if self.modal else ("pause_menu" if self.page == "game" else None)
             elif self.modal:
@@ -345,22 +423,23 @@ class Game:
                 return
             if not self.viewport.collidepoint(ev.pos):
                 return
-            p = self.clamp_point(self.to_world(ev.pos))
+            p = self.to_world(ev.pos) if ev.button == 1 else self.clamp_point(self.to_world(ev.pos))
             if ev.button == 2:
                 self.pan = ev.pos
             elif ev.button == 3:
                 self.drag = p
+                self.drag_points = [p]
             elif ev.button == 1:
                 if self.sandbox and self.editor_tool:
-                    self.paint(p)
+                    self.paint(self.clamp_point(p))
                     return
                 candidates = [
                     u for u in self.sim.world.units if u.alive and u.state != ABOARD and not u.rescued
                 ]
-                nearest = min(candidates, key=lambda u: math.hypot(u.x - p[0], u.y - p[1]), default=None)
+                nearest = min(candidates, key=lambda u: math.dist(self.display_position(u), p), default=None)
                 picked = (
                     nearest
-                    if nearest and math.hypot(nearest.x - p[0], nearest.y - p[1]) <= max(1.8, 17 / self.zoom)
+                    if nearest and math.dist(self.display_position(nearest), p) <= max(1.8, 17 / self.zoom)
                     else None
                 )
                 sel = self.sim.world.by_id(self.selected)
@@ -381,9 +460,14 @@ class Game:
                 self.pan = None
             elif ev.button == 3:
                 if self.drag and not self.modal and self.viewport.collidepoint(ev.pos):
-                    self.issue(self.drag, self.clamp_point(self.to_world(ev.pos)))
+                    self.issue(self.drag, self.clamp_point(self.to_world(ev.pos)), self.drag_points)
                 self.drag = None
+                self.drag_points = []
         elif ev.type == pygame.MOUSEMOTION and not self.modal:
+            if self.drag is not None and self.viewport.collidepoint(ev.pos):
+                point = self.clamp_point(self.to_world(ev.pos))
+                if math.dist(self.drag_points[-1], point) >= 0.5 and len(self.drag_points) < 1500:
+                    self.drag_points.append(point)
             if self.pan:
                 self.cam[0] -= (ev.pos[0] - self.pan[0]) / self.zoom
                 self.cam[1] -= (ev.pos[1] - self.pan[1]) / self.zoom
@@ -394,7 +478,8 @@ class Game:
             pos = pygame.mouse.get_pos()
             if self.viewport.collidepoint(pos):
                 before = self.to_world(pos)
-                self.zoom = max(2, min(25, self.zoom * 1.15**ev.y))
+                minimum = min(self.viewport.w / self.sim.grid.w, self.viewport.h / self.sim.grid.h) * 0.6
+                self.zoom = max(minimum, min(25, self.zoom * 1.15**ev.y))
                 after = self.to_world(pos)
                 self.cam[0] += before[0] - after[0]
                 self.cam[1] += before[1] - after[1]
@@ -410,11 +495,55 @@ class Game:
         elif self.editor_tool == "terrain":
             self.sim.cmd_paint(x, y, self.brush, 1)
 
-    def issue(self, p0, p1):
+    def plan_drop(self, unit, raw, queue=False):
+        payload = unit.tank
+        if unit.is_plane and (queue or unit.state in ("EXITING", "RELOADING")):
+            payload = unit.capacity
+        elif queue and not unit.is_plane:
+            reserved = list(unit.orders)
+            if unit.current and unit.current.kind == DROP:
+                remaining = (
+                    [self.display_position(unit)] + unit.path if unit.drop_phase else unit.current.points
+                )
+                payload -= length(remaining) * payload_per_cell(unit.spec)
+            for order in reserved:
+                if order.kind == DROP:
+                    if payload <= 1e-6:
+                        payload = unit.capacity
+                    payload -= length(order.points) * payload_per_cell(unit.spec)
+            if payload <= 1e-6:
+                payload = unit.capacity
+        curve = smooth_path(raw)
+        maximum = capacity_length(unit.spec, payload)
+        return clip_path(curve, maximum), length(curve) > maximum + 0.01, payload
+
+    def draw_coverage(self, points, unit, color, fill=False):
+        if len(points) < 2:
+            return
+        width = (
+            2 * (int(unit.spec["cut_width"]) // 2) + 1
+            if unit.spec["action"] == CUT
+            else float(unit.spec["drop_width"])
+        )
+        radius = max(2, round(width * self.zoom / 2))
+        centers = coverage_centers(points, max(1, width * 1.1))
+        if fill:
+            shade = pygame.Surface(self.viewport.size, pygame.SRCALPHA)
+            for point in centers:
+                x, y = self.to_screen(*point)
+                pygame.draw.circle(shade, (*color, 30), (x - self.viewport.x, y - self.viewport.y), radius)
+            self.screen.blit(shade, self.viewport.topleft)
+        pygame.draw.lines(self.screen, color, False, [self.to_screen(*p) for p in points], 2)
+        for point in centers:
+            pygame.draw.circle(self.screen, color, self.to_screen(*point), radius, 1)
+        self.text("START", *self.to_screen(*points[0]), 13, INK)
+        self.text("END", *self.to_screen(*points[-1]), 13, INK)
+
+    def issue(self, p0, p1, drawn=None):
         u = self.sim.world.by_id(self.selected)
         if not u or u.is_civilian or self.sim.outcome != RUNNING:
             return
-        dragged = math.dist(p0, p1) > 1.5
+        dragged = length(list(drawn or [p0]) + [p1]) > 1.5
         queue = bool(pygame.key.get_mods() & pygame.KMOD_SHIFT)
         action = u.spec["action"]
         if self.order_mode == MOVE:
@@ -429,15 +558,31 @@ class Game:
             kind = "HOSE"
         else:
             kind = MOVE
+        points = [p0, p1]
+        if kind == DROP:
+            points, limited, payload = self.plan_drop(u, list(drawn or [p0]) + [p1], queue)
+            if length(points) < 0.5:
+                self.say("No payload available. Wait for a refill before drawing a drop.")
+                return
+        elif kind == CUT:
+            points = smooth_path(list(drawn or [p0]) + [p1])
+        elif u.is_plane and self.order_mode != MOVE:
+            self.say("Right-drag a curved drop zone. Escape cancels the plan.")
+            return
         self.sim.cmd_order(
             u.uid,
             kind,
             target=p1 if kind not in (CUT, DROP) else None,
-            points=[p0, p1] if kind in (CUT, DROP) else None,
+            points=points if kind in (CUT, DROP) else None,
             queue=queue,
         )
         self.beep()
         self.say(f"{u.label}: {kind.lower()} {'queued' if queue else 'ordered'}")
+        if kind == DROP:
+            self.say(
+                f"{u.label}: curved drop {'queued' if queue else 'ordered'} / {length(points) * payload_per_cell(u.spec) / u.capacity:.0%} load"
+                + (" / shortened to payload limit" if limited else "")
+            )
 
     def objectives(self):
         obj = self.sim.scenario.objectives
@@ -507,17 +652,29 @@ class Game:
         scr = self.screen
         scr.set_clip(self.viewport)
         pygame.draw.rect(scr, (28, 43, 40), self.viewport)
-        surf = terrain_surface(self.sim, OVERLAYS[self.overlay])
-        scaled = pygame.transform.scale(
-            surf, (max(1, round(self.sim.grid.w * self.zoom)), max(1, round(self.sim.grid.h * self.zoom)))
-        )
-        scr.blit(
-            scaled,
-            (
-                self.viewport.x - round(self.cam[0] * self.zoom),
-                self.viewport.y - round(self.cam[1] * self.zoom),
-            ),
-        )
+        key = (id(self.sim), self.sim.tick, self.overlay, len(self.sim.log))
+        if getattr(self, "terrain_cache_key", None) != key:
+            self.terrain_cache = terrain_surface(self.sim, OVERLAYS[self.overlay])
+            self.terrain_cache_key = key
+        surf = self.terrain_cache
+        visible = pygame.Rect(
+            math.floor(self.cam[0]),
+            math.floor(self.cam[1]),
+            math.ceil(self.viewport.w / self.zoom) + 2,
+            math.ceil(self.viewport.h / self.zoom) + 2,
+        ).clip(surf.get_rect())
+        if visible.w and visible.h:
+            scaled = pygame.transform.scale(
+                surf.subsurface(visible),
+                (max(1, round(visible.w * self.zoom)), max(1, round(visible.h * self.zoom))),
+            )
+            scr.blit(
+                scaled,
+                (
+                    self.viewport.x + round((visible.x - self.cam[0]) * self.zoom),
+                    self.viewport.y + round((visible.y - self.cam[1]) * self.zoom),
+                ),
+            )
         now = time.monotonic()
         if not self.overlay:
             details(scr, self.sim, self.to_screen, self.zoom, self.viewport, now)
@@ -526,14 +683,18 @@ class Game:
             x, y, r = world.safe_zone
             pygame.draw.circle(scr, TEAL, self.to_screen(x, y), int(r * self.zoom), 2)
             self.text("RESCUE ZONE", *self.to_screen(x - r, y + r + 1), 13, INK)
-        for pos, label in [(world.airbase, "AIR BASE"), (world.staging, "STAGING")]:
+        for pos, label in [(world.staging, "STAGING")]:
             x, y = self.to_screen(*pos)
             pygame.draw.rect(scr, (217, 206, 157), (x - 10, y - 10, 20, 20), 2)
             self.text(label, x + 14, y - 8, 13)
+        for stage_x, label in ((-12, "WEST AIR STAGING"), (self.sim.grid.w + 12, "EAST AIR STAGING")):
+            point = self.to_screen(stage_x, world.airbase[1])
+            pygame.draw.circle(scr, (76, 106, 113), point, 20, 1)
+            self.text(label, point[0] - 60, point[1] + 24, 13, MUTED)
         for u in world.units:
             if u.state == ABOARD or not u.alive or u.rescued:
                 continue
-            pos = self.to_screen(u.x, u.y)
+            pos = self.to_screen(*self.display_position(u))
             if u.hose and len(u.hose) > 1:
                 pygame.draw.lines(scr, (123, 199, 220), False, [self.to_screen(*p) for p in u.hose], 2)
             if u.uid == self.selected:
@@ -549,17 +710,89 @@ class Game:
                     pygame.draw.circle(scr, (147, 210, 219), pos, max(1, int(radius * self.zoom)), 1)
             if not self.viewport.inflate(30, 30).collidepoint(pos):
                 continue
-            unit_icon(scr, u.utype, pos, tuple(u.spec["color"]), u.uid == self.selected, now, 10)
+            heading = None
+            if u.is_plane:
+                previous = self.previous_positions.get(u.uid, (u.x - 1, u.y))
+                heading = math.atan2(u.y - previous[1], u.x - previous[0])
+            unit_icon(
+                scr, u.utype, pos, tuple(u.spec["color"]), u.uid == self.selected, now, 10, heading=heading
+            )
             if u.uid == self.selected or u.is_civilian:
                 self.text("HIKER" if u.is_civilian else f"{u.uid:02d}", pos[0] + 15, pos[1] - 15, 13)
-        if self.drag:
-            pygame.draw.line(scr, INK, self.to_screen(*self.drag), pygame.mouse.get_pos(), 2)
+        selected = world.by_id(self.selected)
+        if selected and selected.spec["action"] in (CUT, DROP):
+            for order in ([selected.current] if selected.current else []) + list(selected.orders)[:3]:
+                if order.kind in (CUT, DROP):
+                    self.draw_coverage(order.points, selected, (93, 133, 137))
+        if self.drag is not None:
+            end = self.clamp_point(self.to_world(pygame.mouse.get_pos()))
+            if selected and selected.spec["action"] == DROP and self.order_mode != MOVE:
+                queue = bool(pygame.key.get_mods() & pygame.KMOD_SHIFT)
+                points, limited, payload = self.plan_drop(selected, self.drag_points + [end], queue)
+                color = (237, 137, 167) if selected.spec.get("drop_agent") == "retardant" else TEAL
+                self.draw_coverage(points, selected, color, fill=True)
+                used = length(points) * payload_per_cell(selected.spec) / selected.capacity
+                label = f"DROP LOAD {used:.0%} / " + ("LIMIT REACHED" if limited else "draw to curve")
+                self.text(
+                    label, self.viewport.x + 16, self.viewport.bottom - 56, 17, ORANGE if limited else INK
+                )
+            elif selected and selected.spec["action"] == CUT and self.order_mode != MOVE:
+                points = smooth_path(self.drag_points + [end])
+                self.draw_coverage(points, selected, ORANGE, fill=True)
+                self.text(
+                    "FIREBREAK / continuous cleared line", self.viewport.x + 16, self.viewport.bottom - 56, 17
+                )
+            else:
+                pygame.draw.line(scr, INK, self.to_screen(*self.drag), self.to_screen(*end), 2)
+                if selected and self.order_mode != MOVE and selected.spec.get("spray_radius", 0):
+                    pygame.draw.circle(
+                        scr, TEAL, self.to_screen(*end), round(selected.spec["spray_radius"] * self.zoom), 2
+                    )
             self.text(
-                "Release to order / Shift to queue", self.viewport.x + 16, self.viewport.bottom - 32, 15
+                "Release to confirm / Shift to queue / Esc to cancel",
+                self.viewport.x + 16,
+                self.viewport.bottom - 30,
+                15,
             )
+        for ember in self.sim.grid.embers[:200]:
+            progress = max(0, min(1, (ember.duration - ember.ttl + self.acc) / max(1, ember.duration)))
+            x = ember.x0 + (ember.x1 - ember.x0) * progress
+            y = ember.y0 + (ember.y1 - ember.y0) * progress
+            tip = self.to_screen(x, y)
+            tail = self.to_screen(x - (ember.x1 - ember.x0) * 0.12, y - (ember.y1 - ember.y0) * 0.12)
+            pygame.draw.line(scr, (230, 137, 57), tail, tip, 1)
+            pygame.draw.circle(scr, (255, 225, 136), tip, 2)
+        self.draw_wind()
         scr.set_clip(None)
         pygame.draw.rect(scr, LINE, self.viewport, 1)
         return surf
+
+    def draw_wind(self):
+        grid = self.sim.grid
+        rect = pygame.Rect(self.viewport.right - 226, self.viewport.top + 12, 214, 94)
+        pygame.draw.rect(self.screen, BG, rect, border_radius=6)
+        center = (rect.x + 37, rect.y + 43)
+        pygame.draw.circle(self.screen, LINE, center, 24, 1)
+        self.text("N", center[0] - 4, rect.y + 1, 13, MUTED)
+        dx, dy = bearing_to_vector(grid.wind_bearing)
+        start = (center[0] - dx * 15, center[1] - dy * 15)
+        tip = (center[0] + dx * 21, center[1] + dy * 21)
+        tint = ORANGE if grid.wind_speed >= FIRE["spot_min_wind"] else TEAL
+        pygame.draw.line(self.screen, tint, start, tip, 3)
+        pygame.draw.polygon(
+            self.screen,
+            tint,
+            [
+                tip,
+                (tip[0] - dx * 10 - dy * 6, tip[1] - dy * 10 + dx * 6),
+                (tip[0] - dx * 10 + dy * 6, tip[1] - dy * 10 - dx * 6),
+            ],
+        )
+        direction = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")[int((grid.wind_bearing + 22.5) // 45) % 8]
+        self.text(f"TOWARD {direction}", rect.x + 75, rect.y + 11, 13, MUTED)
+        self.text(f"{grid.wind_speed:.1f} m/s", rect.x + 75, rect.y + 31, 20, INK)
+        risk = "Embers can cross lines" if grid.wind_speed >= FIRE["spot_min_wind"] else "Low ember risk"
+        self.text(risk, rect.x + 12, rect.y + 70, 13, tint)
 
     def draw_game(self):
         w, h = self.screen.get_size()
@@ -591,31 +824,75 @@ class Game:
             y = self.wrap(line, x + 18, y, 264, 15, INK)
         money = "Unlimited" if self.sim.budget is None else f"${self.sim.budget - self.sim.spent:,.0f}"
         self.text(f"Resources  {money}", x + 18, 225, 17, TEAL)
-        self.button(f"Dispatch units  /  {st['pending']} inbound", (x + 18, 255, 262, 34), "dispatch")
-        self.text("ON SCENE / SELECT TO COMMAND", x + 18, 309, 13, MUTED)
-        roster = [u for u in self.sim.world.units if u.alive and not u.is_civilian and u.state != ABOARD]
-        visible = max(2, (h - 650) // 43)
-        self.roster_scroll = min(self.roster_scroll, max(0, len(roster) - visible))
-        y = 335
-        for u in roster[self.roster_scroll : self.roster_scroll + visible]:
+        self.button(f"Buy units  /  {st['pending']} inbound", (x + 18, 255, 262, 34), "dispatch")
+        for index, (key, title) in enumerate((("all", "All"), ("ground", "Ground"), ("air", "Aircraft"))):
             self.button(
-                f"{u.uid:02d}  {u.label}",
-                (x + 16, y, 266, 38),
-                f"unit:{u.uid}",
-                active=u.uid == self.selected,
+                title, (x + 16 + index * 90, 297, 86, 28), f"roster:{key}", active=self.roster_filter == key
             )
-            pygame.draw.circle(self.screen, TEAL if u.state == "WORKING" else ORANGE, (x + 269, y + 19), 3)
-            y += 43
-        self.text(f"{len(roster)} units / scroll for more", x + 18, y + 2, 13, MUTED)
-        y = max(y + 30, h - 337)
+        if self.sim.world.pending:
+            arrival = min(self.sim.world.pending, key=lambda a: a.at)
+            eta = max(0, math.ceil(arrival.at - self.sim.grid.time))
+            self.text(
+                f"Inbound: {UNITS[arrival.utype]['label']} {eta}s" + (" / paused" if self.paused else ""),
+                x + 18,
+                329,
+                13,
+                ORANGE,
+            )
+        else:
+            self.text("Select a card to command", x + 18, 329, 13, MUTED)
+        roster = [
+            u
+            for u in self.sim.world.units
+            if u.alive
+            and not u.is_civilian
+            and u.state != ABOARD
+            and (self.roster_filter == "all" or u.is_air == (self.roster_filter == "air"))
+        ]
+        panel_y = h - 337
+        visible = max(1, (panel_y - 348 - 30) // 50)
+        self.roster_scroll = min(self.roster_scroll, max(0, len(roster) - visible))
+        y = 348
+        for u in roster[self.roster_scroll : self.roster_scroll + visible]:
+            self.button("", (x + 16, y, 266, 44), f"unit:{u.uid}", active=u.uid == self.selected)
+            self.text(u.label, x + 25, y + 5, 15)
+            ready = u.capacity and u.tank >= u.capacity and u.state not in ("RELOADING", "EXITING")
+            tint = TEAL if ready else MUTED
+            status = self.resource_status(u)
+            if u.is_plane and not (0 <= u.x < self.sim.grid.w and 0 <= u.y < self.sim.grid.h):
+                status = "STAGED / " + status
+            self.text(status, x + 25, y + 27, 13, tint)
+            if u.uid == self.selected:
+                pygame.draw.rect(self.screen, TEAL, (x + 17, y + 5, 3, 38), border_radius=1)
+            y += 50
+        if not roster:
+            self.text(
+                "No aircraft purchased" if self.roster_filter == "air" else "No units in this group",
+                x + 24,
+                y + 8,
+                15,
+                MUTED,
+            )
+        self.text(f"{len(roster)} unit" + ("s" if len(roster) != 1 else ""), x + 18, panel_y - 23, 13, MUTED)
+        self.button("Prev", (x + 146, panel_y - 29, 62, 24), "scroll:up", enabled=self.roster_scroll > 0)
+        self.button(
+            "Next",
+            (x + 216, panel_y - 29, 62, 24),
+            "scroll:down",
+            enabled=self.roster_scroll + visible < len(roster),
+        )
+        pygame.draw.line(self.screen, LINE, (x + 16, panel_y - 1), (x + 282, panel_y - 1))
+        y = panel_y + 8
         sel = self.sim.world.by_id(self.selected)
         if sel and not sel.is_civilian:
             self.text(sel.label.upper(), x + 18, y, 17, ORANGE)
-            self.text(sel.state.replace("_", " ") + f" / {len(sel.orders)} queued", x + 18, y + 26, 13)
+            self.text(self.resource_status(sel) + f" / {len(sel.orders)} queued", x + 18, y + 26, 13)
             if sel.capacity:
-                pygame.draw.rect(self.screen, LINE, (x + 18, y + 52, 180, 5))
+                pygame.draw.rect(self.screen, LINE, (x + 18, y + 50, 180, 10))
                 pygame.draw.rect(
-                    self.screen, TEAL, (x + 18, y + 52, int(180 * max(0, min(1, sel.tank / sel.capacity))), 5)
+                    self.screen,
+                    TEAL,
+                    (x + 18, y + 50, int(180 * max(0, min(1, sel.tank / sel.capacity))), 10),
                 )
                 self.text(f"{max(0, sel.tank) / sel.capacity:.0%}", x + 216, y + 43, 13, TEAL)
             if sel.passenger_slots:
@@ -623,10 +900,16 @@ class Game:
                     f"Passengers  {len(sel.passengers)} / {sel.passenger_slots}", x + 18, y + 64, 13, TEAL
                 )
             self.button("Auto / Q", (x + 18, y + 89, 84, 30), "order:AUTO", active=self.order_mode == "AUTO")
-            self.button("Move / M", (x + 108, y + 89, 84, 30), "order:MOVE", active=self.order_mode == MOVE)
+            self.button("Locate", (x + 108, y + 89, 84, 30), "locate")
             self.button("Hold", (x + 198, y + 89, 82, 30), "order:HOLD")
         else:
-            self.wrap("Select a unit on the map or in the roster to issue orders.", x + 18, y, 260, 17)
+            self.wrap(
+                "Buy your fleet to begin. Aircraft can be selected here even when staged off-map.",
+                x + 18,
+                y,
+                260,
+                17,
+            )
         self.screen.blit(pygame.transform.scale(mini, self.minimap.size), self.minimap)
         self.screen.set_clip(self.minimap)
         vr = pygame.Rect(
@@ -636,10 +919,12 @@ class Game:
             self.viewport.h / self.zoom / self.sim.grid.h * self.minimap.h,
         )
         pygame.draw.rect(self.screen, INK, vr, 1)
-        for u in roster:
+        for u in self.sim.world.units:
+            if not u.alive or u.rescued or u.state == ABOARD:
+                continue
             pygame.draw.circle(
                 self.screen,
-                INK,
+                ORANGE if u.is_civilian else INK,
                 (
                     round(self.minimap.x + u.x / self.sim.grid.w * self.minimap.w),
                     round(self.minimap.y + u.y / self.sim.grid.h * self.minimap.h),
@@ -672,7 +957,7 @@ class Game:
             )
         if self.paused and not self.modal:
             pygame.draw.rect(self.screen, BG, (self.viewport.centerx - 94, 106, 188, 33), border_radius=4)
-            self.text("PAUSED / SPACE", self.viewport.centerx - 69, 112, 15, ORANGE)
+            self.text("PLAN / SPACE", self.viewport.centerx - 60, 112, 15, ORANGE)
 
     def draw_modal(self):
         if not self.modal:
@@ -693,12 +978,12 @@ class Game:
             for line in self.objectives():
                 bottom = self.wrap("• " + line, x, bottom + 10, 644, 17, TEAL)
             tip = (
-                "Select the helicopter, then click a hiker. Hold Shift to queue more pickups. Right-click inside the green rescue zone to unload."
+                "Buy a helicopter, select it, then click a hiker. Hold Shift to queue more pickups. Right-click inside the green rescue zone to unload."
                 if self.mission == 1
-                else "Select a unit in the roster. Right-click to move or attack. Right-drag a line with crews to cut a firebreak, or with aircraft to drop water. Pause any time to plan."
+                else "Buy your fleet, then select a card in the roster. Right-click to move or attack. Right-drag a line with crews to cut a firebreak, or with aircraft to drop water. Pause any time to plan."
             )
             self.wrap(tip, x, max(bottom + 25, y + 275), 644, 17)
-            self.button("BEGIN OPERATION / ENTER", (x, rect.bottom - 78, 652, 46), "begin", True)
+            self.button("OPEN MAP TO PLAN / ENTER", (x, rect.bottom - 78, 652, 46), "begin", True)
         elif self.modal == "help":
             self.text("FIELD GUIDE", x, y, 32)
             lines = [
@@ -708,7 +993,7 @@ class Game:
                 ),
                 (
                     "CUT LINES & AIR DROPS",
-                    "Right-drag from start to end. Cut teams remove fuel; aircraft lay a strip of water or retardant.",
+                    "Select Aircraft, then a card. Right-drag a curve: circles show the payload-limited swath. Esc cancels. Planes exit to reload.",
                 ),
                 (
                     "RESCUE",
@@ -716,7 +1001,7 @@ class Game:
                 ),
                 (
                     "WATER & RESOURCES",
-                    "Hose teams need a nearby lake or engine. Vehicles refill automatically. B opens dispatch.",
+                    "B buys units. Planning purchases are ready immediately; later purchases show a countdown. Hose teams need a lake or engine.",
                 ),
                 (
                     "CAMERA & SAVES",
@@ -731,14 +1016,23 @@ class Game:
         elif self.modal == "dispatch":
             self.text("RESOURCE DISPATCH", x, y, 32)
             self.text(
-                "Units arrive at staging or the air base after their dispatch delay.", x, y + 48, 15, MUTED
+                "Crews are ready during planning. Planes start empty and load off-map after Resume.",
+                x,
+                y + 48,
+                15,
+                MUTED,
             )
             avail = self.sim.available_units()
             for i, kind in enumerate(avail):
                 spec = UNITS[kind]
                 col = i % 2
                 row = i // 2
-                label = f"{spec.get('label', kind)} / ${spec.get('cost', 0):,.0f}"
+                delay = (
+                    (f"load {spec['reload_seconds']:.0f}s" if spec.get("reload_at_base") else "ready now")
+                    if self.sim.tick == 0
+                    else f"{spec.get('arrival_seconds', 0):.0f}s"
+                )
+                label = f"{spec.get('label', kind)} ${spec.get('cost', 0):,.0f} / {delay}"
                 self.button(
                     label,
                     (x + col * 332, y + 90 + row * 48, 318, 40),
@@ -794,6 +1088,22 @@ class Game:
             pygame.draw.rect(self.screen, (42, 67, 63), rect, border_radius=5)
             self.text(self.toast[0], rect.x + 12, rect.y + 7, 15, INK)
 
+    def display_position(self, unit):
+        previous = self.previous_positions.get(unit.uid, (unit.x, unit.y))
+        alpha = max(0, min(1, self.acc))
+        return (previous[0] + (unit.x - previous[0]) * alpha, previous[1] + (unit.y - previous[1]) * alpha)
+
+    @staticmethod
+    def resource_status(unit):
+        if unit.state == "RELOADING":
+            return f"LOAD {math.ceil(unit.reload_timer)}s / {unit.tank / unit.capacity:.0%}"
+        if unit.is_plane and unit.state == "READY":
+            return "READY 100%"
+        if unit.capacity:
+            amount = max(0, min(100, round(unit.tank / unit.capacity * 100)))
+            return f"{unit.state} {amount}%"
+        return unit.state.replace("_", " ")
+
     def update(self, dt):
         if self.page != "game" or self.modal:
             return
@@ -801,11 +1111,22 @@ class Game:
         self.cam[0] += (keys[pygame.K_d] - keys[pygame.K_a]) * dt * 350 / self.zoom
         self.cam[1] += (keys[pygame.K_s] - keys[pygame.K_w]) * dt * 350 / self.zoom
         if not self.paused and self.sim.outcome == RUNNING:
-            self.acc += min(dt, 0.1) * 6 * self.speed
+            self.acc += min(dt, 0.1) * NORMAL_TICKS_PER_SECOND * self.speed
             n = int(self.acc)
-            if n:
-                self.sim.step(n)
-                self.acc -= n
+            for _ in range(n):
+                self.previous_positions = {u.uid: (u.x, u.y) for u in self.sim.world.units}
+                reloading = {u.uid for u in self.sim.world.units if u.is_plane and u.state == "RELOADING"}
+                known = {u.uid for u in self.sim.world.units}
+                self.sim.step(1)
+                for u in self.sim.world.units:
+                    if u.uid not in known and not u.is_civilian:
+                        self.latest_arrival = u.uid
+                        self.say(f"{u.label} has arrived. Select its roster card, then Locate to find it.")
+                for u in self.sim.world.units:
+                    if u.uid in reloading and u.tank >= u.capacity:
+                        self.say(f"{u.label}: fully loaded and ready for another run.")
+                self.acc -= 1
+        self.clamp_camera()
         if self.sim.tick - self.auto_tick >= 180:
             try:
                 save_game(self.sim, "autosave.bbsave")

@@ -1,3 +1,43 @@
+## Backburn v0.6.0 — wind, firebreaks and clearer line previews
+
+- Preview circles are spaced farther apart. Dozers and cutting crews now preview and follow curved firebreaks; engines and hose teams show their suppression radius.
+- Planes arrive empty and load off-map. Queue a drop while loading; the aircraft waits until full. Removed the on-map air-base marker.
+- New missions have gradual, bounded gusts and direction shifts, preserved through save/load and replay. A compass arrow shows the direction wind is blowing toward, speed and ember risk; airborne embers have visible trails.
+- Firebreak terrain is now nonflammable, direct spread cannot slip diagonally through touching cleared cells, and crews clear the last cell of their line.
+- Strong wind accelerates downwind spread and can loft embers from grass as well as timber. Embers can cross firebreaks; embers leaving the map no longer ignite its border.
+
+## Backburn v0.5.0 — plan your fleet and draw curved drops
+
+- Aircraft drops follow the route you draw. Coverage circles preview the swath; stroke length is capped to available payload, using the same calculation as the simulation. Short drops conserve unused payload.
+- Escape cancels a drop plan; Shift queues another. Planes choose the nearest of all four map edges for exit and reload.
+- New missions start without response units. Buy a fleet within the mission budget; setup purchases are immediately ready, while later reinforcements retain arrival delays. Civilians and rescue objectives remain.
+- A cleaner roster separates All, Ground and Aircraft, with explicit off-map staged status, clear selection, paging and a Locate control.
+- WASD works at overview zoom and beyond map edges within bounded margins. Off-map aircraft can also be selected directly. Home restores the overview.
+- Existing saves keep their units and map layout; start a new mission for the fleet setup changes.
+
+## Backburn v0.4.0 — smooth movement and aircraft sorties
+
+- Units animate between simulation ticks without speeding up the fire.
+- Planes stage beyond the map sides, fly through their drop runs, and exit before reloading. Helicopters retain hovering and rescue behavior.
+- Reload countdowns, READY labels, resource bars and completion notices make availability clear. Orders queued during reloading wait until the aircraft is full.
+- Maps are 50% wider and taller than v0.3.2. Existing saves keep their original dimensions.
+- Dispatch shows delivery times and an inbound countdown, closes after a purchase, and provides a Locate button on arrival. Bulldozer dispatch is reduced from 150 to 45 simulated seconds.
+- Terrain rendering caches unchanged frames and scales only the visible area.
+
+## Backburn v0.3.2 — Windows installation fix
+
+- Install into a fresh version folder and activate it only after the copy completes, avoiding Windows directory-rename permission failures.
+- Existing saves and the previous installed version are preserved during updates.
+
+## Backburn v0.3.1 — planning time and larger maps
+
+- Normal speed now advances one simulation second per real second, six times slower than v0.3.0.
+- Every new incident opens paused so you can inspect the terrain and queue orders before resuming.
+- Tree positions stay fixed when other trees burn; surviving trees no longer reshuffle.
+- Desktop maps are twice as wide and tall, preserving the original geography and objectives.
+- The camera starts at tactical zoom near staging and the fire. WASD, wheel zoom, Home and the minimap navigate the larger map.
+- Civilian markers are now visible on the minimap. Old saves retain their original map dimensions.
+
 ## Backburn v0.3.0 — first desktop demo
 
 An original top-down wildfire tactics game, built from the supplied v0.2 simulation.
