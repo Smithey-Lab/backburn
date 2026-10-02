@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 import urllib.request
+import uuid
 import webbrowser
 import zipfile
 from pathlib import Path
@@ -76,10 +77,16 @@ def install_archive(archive, digest, version, root=ROOT):
             bundle.extractall(staging)
         if not (staging / "Backburn.exe").is_file():
             raise ValueError("Release is missing Backburn.exe")
-        folder = f"{version}-{actual[:12]}"
+        folder = f"{version}-{actual[:12]}-{uuid.uuid4().hex[:8]}"
         destination = versions / folder
         if not destination.exists():
-            staging.rename(destination)
+            # Windows tempfile directories use private ACLs. Copy into a fresh
+            # installation directory so files inherit the destination's normal
+            # permissions rather than carrying temporary-directory ACLs forever.
+            # Activate only the small pointer file after copying completes.
+            # Renaming a directory containing executables can be denied by
+            # Windows while another process inspects newly written files.
+            shutil.copytree(staging, destination)
         data = {"version": version, "folder": f"versions/{folder}", "sha256": actual}
         temporary = root / "current.tmp"
         temporary.write_text(json.dumps(data), encoding="utf-8")

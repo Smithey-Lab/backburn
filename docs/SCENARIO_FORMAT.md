@@ -110,3 +110,11 @@ objective/scoring keys, out-of-bounds points, ragged or mis-lettered terrain row
 non-numeric numbers, events without `at` or without an action, elevation rows of the
 wrong shape, missing files, invalid JSON (with line number). `tests/test_features.py`
 covers these.
+
+
+### Variable wind
+
+`wind.variable` is an optional boolean (default `false`). Desktop mission layouts enable it.
+Gusts transition smoothly between seeded targets every 35 simulated seconds, within
+-25%/+35% of the current baseline speed and +/-20 degrees of its bearing. Scripted or
+player wind changes establish a new baseline. Weather state is saved and replayed.

@@ -113,7 +113,7 @@ in its radius. These are **starting points** (brief §15 calls them a design spa
 | `ROAD` | R | 0.0 | 0.0 | 0.0 | 0.0 | 0 | 0.8 | 0.6 | 0.7 | 1.0 | — |
 | `GRAVEL` | V | 0.0 | 0.0 | 0.0 | 0.0 | 0 | 0.9 | 1.0 | 0.9 | 1.0 | — |
 | `STRUCTURE` | B | 1.2 | 0.12 | 0.02 | 1.2 | 120 | — | — | — | 1.0 | — |
-| `FIREBREAK` | X | 0.02 | 0.05 | 0.2 | 0.05 | 0 | 0.9 | — | 1.0 | 1.0 | — |
+| `FIREBREAK` | X | 0.0 | 0.0 | 0.0 | 0.0 | 0 | 0.9 | — | 1.0 | 1.0 | — |
 | `SAND` | A | 0.0 | 0.0 | 0.0 | 0.0 | 0 | 1.2 | — | 1.4 | 1.0 | — |
 <!-- END GENERATED: terrain -->
 
@@ -125,7 +125,7 @@ Movement columns are cost multipliers per movement class (1.0 = full speed, — 
 | Constant | Value |
 |---|---|
 | `exposure_scale` | 0.18 |
-| `wind_gain` | 0.14 |
+| `wind_gain` | 0.2 |
 | `wind_upwind_min` | 0.12 |
 | `slope_gain` | 1.5 |
 | `dryness_floor` | 0.08 |
@@ -141,7 +141,7 @@ Movement columns are cost multipliers per movement class (1.0 = full speed, — 
 | `cell_size_m` | 10.0 |
 | `spot_min_wind` | 8.0 |
 | `spot_rate` | 0.002 |
-| `spot_min_heat` | 0.9 |
+| `spot_min_heat` | 0.6 |
 | `spot_ignite` | 0.5 |
 | `spot_dist_base` | 4.0 |
 | `spot_dist_gain` | 1.2 |
