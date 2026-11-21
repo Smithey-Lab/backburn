@@ -1,0 +1,40 @@
+name: Dependabot auto-merge
+
+# Turns on GitHub's auto-merge (squash) for Dependabot patch and minor
+# updates, so they merge on their own once every required check passes.
+# Majors are left for a person to review. This job never merges directly.
+on: pull_request
+
+permissions: {}
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'Smithey-Lab/backburn'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Read Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for patch and minor updates
+        if: >-
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_ID: ${{ github.event.pull_request.node_id }}
+        run: |
+          # enablePullRequestAutoMerge only queues the merge, and it errors instead
+          # of merging when auto-merge is off for the repo or the PR is already
+          # mergeable. Required checks on the target branch are what make it wait.
+          if ! gh api graphql \
+              -f query='mutation($id: ID!) { enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: SQUASH}) { clientMutationId } }' \
+              -f id="$PR_ID"; then
+            echo "::warning::Auto-merge not enabled. Check that Allow auto-merge is on and the target branch requires status checks."
+          fi

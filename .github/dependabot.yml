@@ -4,8 +4,23 @@ updates:
     directory: /
     schedule:
       interval: weekly
+      day: monday
     open-pull-requests-limit: 5
+    groups:
+      # Minor and patch in one PR; majors stay separate for review.
+      python-minor-patch:
+        update-types: [minor, patch]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+      day: monday
+    groups:
+      # CodeQL init and analyze must always land together, majors included.
+      codeql-action:
+        patterns: ["github/codeql-action*"]
+      # Other actions: minor and patch in one PR; majors stay separate.
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
